@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type * as LType from "leaflet";
@@ -10,39 +10,54 @@ import PostVideoTile from "@/components/PostVideoTile";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
 import { buildClusterIndex, getVisibleMapFeatures, type PostClusterIndex } from "@/lib/map/clustering";
-import { readMapViewport, saveMapViewport } from "@/lib/map/viewport";
+import { hasValidMapLocation, readMapViewport, saveMapViewport } from "@/lib/map/viewport";
+import type { MapViewport } from "@/lib/map/types";
 import type { Post } from "@/types/post";
 import PostClusterMarker from "./PostClusterMarker";
 import PostMapMarker from "./PostMapMarker";
 
-const DEFAULT_ZOOM = 13;
+// Neutral starting point when no viewport has been saved yet and there's no post
+// to center on — same convention LocationPicker uses for "no location yet".
+const FALLBACK_CENTER = { lat: 20, lng: 0 };
+const FALLBACK_ZOOM = 2;
 const MOVE_DEBOUNCE_MS = 200;
+// Matches clustering.ts's Supercluster maxZoom — close enough that a targeted
+// post is shown as an individual pin rather than folded into a cluster.
+const TARGET_POST_ZOOM = 17;
 
 type LocatedPost = Post & { latitude: number; longitude: number };
 
-function computeCentroid(posts: LocatedPost[]) {
-  const total = posts.reduce(
-    (acc, post) => ({ lat: acc.lat + post.latitude, lng: acc.lng + post.longitude }),
-    { lat: 0, lng: 0 },
-  );
-  return { lat: total.lat / posts.length, lng: total.lng / posts.length };
+function viewportFromMap(map: LType.Map): MapViewport {
+  const center = map.getCenter();
+  const bounds = map.getBounds();
+  return {
+    lat: center.lat,
+    lng: center.lng,
+    zoom: map.getZoom(),
+    bounds: {
+      west: bounds.getWest(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      north: bounds.getNorth(),
+    },
+  };
 }
 
 export default function MapPage() {
   const allPosts = useAllPosts();
   const mapPosts = useMemo<LocatedPost[]>(
-    () =>
-      allPosts.filter(
-        (post): post is LocatedPost =>
-          Boolean(post.showOnMap) &&
-          typeof post.latitude === "number" &&
-          typeof post.longitude === "number",
-      ),
+    () => allPosts.filter(hasValidMapLocation),
     [allPosts],
   );
-  const hasMapPosts = mapPosts.length > 0;
 
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTargetPostId = searchParams.get("postId");
+  const targetPostId = useMemo(() => {
+    const parsed = rawTargetPostId === null ? NaN : Number(rawTargetPostId);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [rawTargetPostId]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
@@ -50,6 +65,18 @@ export default function MapPage() {
   const clusterIndexRef = useRef<PostClusterIndex | null>(null);
   const postsByIdRef = useRef<Map<number, Post>>(new Map());
   const moveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which post's marker should render highlighted — read by updateMarkers via
+  // ref (not React state) because it's called from Leaflet event handlers bound
+  // once at mount, which would otherwise close over a stale value.
+  const previewPostIdRef = useRef<number | null>(null);
+  // Set right before a one-shot programmatic camera move (View on Map targeting)
+  // so the very next debounced save skips persisting it as the ambient viewport.
+  const suppressNextViewportSaveRef = useRef(false);
+  // Guards the target-post effect below so it applies at most once per page life.
+  const hasResolvedTargetRef = useRef(false);
+  // Lets a marker's own click handler (defined inside updateMarkers, below)
+  // trigger a fresh redraw without updateMarkers referencing itself.
+  const updateMarkersRef = useRef<() => void>(() => {});
 
   const [isMapReady, setIsMapReady] = useState(false);
   const [previewPost, setPreviewPost] = useState<Post | null>(null);
@@ -84,6 +111,7 @@ export default function MapPage() {
               image={post.image}
               imageAlt={post.imageAlt}
               title={getDisplayTitle(post)}
+              highlighted={previewPostIdRef.current === post.id}
             />,
           ),
           className: "",
@@ -92,7 +120,11 @@ export default function MapPage() {
         });
         leaflet
           .marker([post.latitude, post.longitude], { icon })
-          .on("click", () => setPreviewPost(post))
+          .on("click", () => {
+            previewPostIdRef.current = post.id;
+            setPreviewPost(post);
+            updateMarkersRef.current();
+          })
           .addTo(layer);
       } else {
         const { cluster } = feature;
@@ -110,6 +142,7 @@ export default function MapPage() {
         leaflet
           .marker([cluster.latitude, cluster.longitude], { icon })
           .on("click", () => {
+            previewPostIdRef.current = null;
             setPreviewPost(null);
             const params = new URLSearchParams({
               postIds: cluster.postIds.join(","),
@@ -125,22 +158,36 @@ export default function MapPage() {
     }
   }, [router]);
 
+  useEffect(() => {
+    updateMarkersRef.current = updateMarkers;
+  }, [updateMarkers]);
+
   const scheduleUpdate = useCallback(() => {
     if (moveTimeoutRef.current) clearTimeout(moveTimeoutRef.current);
     moveTimeoutRef.current = setTimeout(() => {
       updateMarkers();
       const map = mapRef.current;
-      if (map) {
-        const center = map.getCenter();
-        saveMapViewport({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
+      if (!map) return;
+
+      // The one-shot "View on Map" camera move fires this same moveend/zoomend
+      // path — skip persisting just that move as the ambient viewport. Any pan
+      // or zoom after this point runs with the flag already consumed, so it
+      // saves normally.
+      if (suppressNextViewportSaveRef.current) {
+        suppressNextViewportSaveRef.current = false;
+        return;
       }
+
+      saveMapViewport(viewportFromMap(map));
     }, MOVE_DEBOUNCE_MS);
   }, [updateMarkers]);
 
-  // Mount the Leaflet map once there is at least one post to show. Never re-created
-  // on data changes — only the marker layer is refreshed (see the effect below).
+  // Mount the Leaflet map on first render regardless of post count — Map is an
+  // area-selection tool independent of whether there's anything to show yet.
+  // Never re-created on data changes — only the marker layer is refreshed (see
+  // the effect below).
   useEffect(() => {
-    if (!hasMapPosts || !containerRef.current || mapRef.current) return;
+    if (!containerRef.current || mapRef.current) return;
 
     let cancelled = false;
 
@@ -151,7 +198,7 @@ export default function MapPage() {
       leafletRef.current = leaflet;
 
       const savedViewport = readMapViewport();
-      const initialCenter = savedViewport ?? { ...computeCentroid(mapPosts), zoom: DEFAULT_ZOOM };
+      const initialCenter = savedViewport ?? { ...FALLBACK_CENTER, zoom: FALLBACK_ZOOM };
 
       const map = leaflet.map(containerRef.current, {
         center: [initialCenter.lat, initialCenter.lng],
@@ -173,6 +220,15 @@ export default function MapPage() {
       map.on("zoomend", scheduleUpdate);
 
       setIsMapReady(true);
+
+      // Opening Map and seeing its initial area counts as selecting one — save it
+      // right away rather than waiting for the user to pan/zoom first. Skipped
+      // when arriving via a targeted post link: the resolution effect below
+      // either applies the post's location (without saving) or, once posts have
+      // loaded and no valid target is found, performs this save itself instead.
+      if (targetPostId === null) {
+        saveMapViewport(viewportFromMap(map));
+      }
     })();
 
     return () => {
@@ -182,10 +238,9 @@ export default function MapPage() {
       mapRef.current = null;
       setIsMapReady(false);
     };
-    // Intentionally only re-runs when the map goes from "nothing to show" to "has posts" —
-    // the map instance itself should persist across post-list updates.
+    // Mount once; the map instance persists across post-list updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMapPosts]);
+  }, []);
 
   // Rebuild the clustering index only when the underlying post set actually changes,
   // then redraw markers for the current viewport.
@@ -206,23 +261,43 @@ export default function MapPage() {
     };
   }, [mapPosts, isMapReady, updateMarkers]);
 
-  if (!hasMapPosts) {
-    return (
-      <main className="mx-auto flex h-screen w-full max-w-md flex-col items-center justify-center bg-[#fbfaf7] px-8 pb-20 text-center shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-        <div className="grid size-14 place-items-center rounded-full bg-orange-100 text-2xl">📍</div>
-        <h1 className="mt-4 text-lg font-black">No posts on the map yet.</h1>
-        <p className="mt-2 text-sm leading-6 text-stone-500">
-          Turn on &ldquo;Show this post on the map&rdquo; when you add a spot to see it here.
-        </p>
-        <Link
-          href="/add"
-          className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white"
-        >
-          + Add a Spot
-        </Link>
-      </main>
-    );
-  }
+  // Resolve a "View on Map" target once posts are available: center on the
+  // post, zoom in close, and mark it highlighted — without touching the
+  // ambient viewport (see the mount effect and scheduleUpdate above for how
+  // that separation is kept).
+  useEffect(() => {
+    if (!isMapReady || targetPostId === null || hasResolvedTargetRef.current) return;
+
+    const map = mapRef.current;
+    if (!map) return;
+
+    const target = mapPosts.find((post) => post.id === targetPostId);
+
+    if (target) {
+      hasResolvedTargetRef.current = true;
+      suppressNextViewportSaveRef.current = true;
+      // Apply the highlight/preview once the camera actually settles (Leaflet
+      // fires moveend whether or not the move animates), rather than eagerly
+      // inside this effect body.
+      map.once("moveend", () => {
+        previewPostIdRef.current = target.id;
+        setPreviewPost(target);
+        updateMarkersRef.current();
+      });
+      map.setView([target.latitude, target.longitude], TARGET_POST_ZOOM);
+      return;
+    }
+
+    // No matching, located post — postId may be invalid, missing, or point at a
+    // post without a location, or posts simply haven't finished loading yet.
+    // Only give up once posts have actually loaded (allPosts.length > 0); at
+    // that point this behaves exactly like a plain /map visit and establishes
+    // the ambient viewport from wherever the map already is.
+    if (allPosts.length > 0) {
+      hasResolvedTargetRef.current = true;
+      saveMapViewport(viewportFromMap(map));
+    }
+  }, [isMapReady, mapPosts, allPosts.length, targetPostId, updateMarkers]);
 
   return (
     <main className="relative mx-auto h-screen w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
@@ -240,7 +315,11 @@ export default function MapPage() {
         <article className="absolute inset-x-3 bottom-24 z-20 flex gap-3 rounded-2xl bg-white/95 p-3 shadow-xl backdrop-blur">
           <button
             type="button"
-            onClick={() => setPreviewPost(null)}
+            onClick={() => {
+              previewPostIdRef.current = null;
+              setPreviewPost(null);
+              updateMarkers();
+            }}
             aria-label="Close preview"
             className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-stone-900/80 text-xs text-white"
           >

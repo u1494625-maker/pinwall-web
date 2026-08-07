@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useSavedPostIds } from "@/components/PostCard";
+import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
 
@@ -92,12 +93,12 @@ export default function PostDetail({ postId }: PostDetailProps) {
       )}
 
       <div className="px-5 pt-5">
-        {post.locationName ? (
+        {hasValidMapLocation(post) ? (
           <Link
-            href="/map"
+            href={`/map?postId=${post.id}`}
             className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.14em] text-orange-600"
           >
-            📍 {post.locationName}
+            📍 {post.locationName || "View on Map"}
           </Link>
         ) : null}
 
