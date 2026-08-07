@@ -132,15 +132,23 @@ export async function addPost(input: Omit<Post, "id">): Promise<Post> {
   return rowToPost(data);
 }
 
-/** Fetches every post on mount. Returns [] until the request resolves. */
-export function useAllPosts(): Post[] {
+/**
+ * Fetches every post on mount, exposing loading state alongside the data so
+ * callers can distinguish "still loading" from "genuinely empty" — `posts`
+ * alone is `[]` in both cases until this resolves.
+ */
+export function useAllPostsState(): { posts: Post[]; loading: boolean } {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     getAllPosts().then((result) => {
-      if (!cancelled) setPosts(result);
+      if (!cancelled) {
+        setPosts(result);
+        setLoading(false);
+      }
     });
 
     return () => {
@@ -148,5 +156,10 @@ export function useAllPosts(): Post[] {
     };
   }, []);
 
-  return posts;
+  return { posts, loading };
+}
+
+/** Fetches every post on mount. Returns [] until the request resolves. */
+export function useAllPosts(): Post[] {
+  return useAllPostsState().posts;
 }

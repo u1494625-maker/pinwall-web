@@ -9,6 +9,7 @@ import TagChipInput from "@/components/add/TagChipInput";
 import TitleField from "@/components/add/TitleField";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { convertHeicToJpeg, isHeicFile, MAX_HEIC_SOURCE_BYTES } from "@/lib/heic";
 import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { addPost } from "@/lib/posts";
 import {
@@ -45,6 +46,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConvertingHeic, setIsConvertingHeic] = useState(false);
 
   // Revokes the previous object URL whenever it's replaced or the editor unmounts.
   useEffect(() => {
@@ -63,27 +65,48 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     }
   }, [initialSource]);
 
-  function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = ""; // allow re-selecting the same file later
     if (!file) return; // user canceled the picker — leave the editor as it was
 
     setError(null);
 
-    if (!ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
-      setError("Unsupported file type. Use a JPEG, PNG, WEBP, GIF, or AVIF photo, or an MP4, WEBM, or MOV video.");
-      return;
-    }
-
     const isVideo = file.type.startsWith("video/");
-    const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-    if (file.size > maxBytes) {
-      setError(`That file is too large. Choose one under ${Math.round(maxBytes / (1024 * 1024))}MB.`);
+    const isHeicSource = !isVideo && isHeicFile(file);
+
+    if (!isHeicSource && !ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
+      setError(
+        "Unsupported file type. Use a JPEG, PNG, WEBP, GIF, AVIF, or HEIC/HEIF photo, or an MP4, WEBM, or MOV video.",
+      );
       return;
     }
 
-    setMediaFile(file);
-    setMediaPreviewUrl(URL.createObjectURL(file));
+    // HEIC gets its own, more generous ceiling here — its compression means a
+    // real iPhone photo can legitimately exceed the final 5MB upload limit
+    // while still converting down to a compliant JPEG below.
+    const maxSourceBytes = isHeicSource ? MAX_HEIC_SOURCE_BYTES : isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > maxSourceBytes) {
+      setError(`That file is too large. Choose one under ${Math.round(maxSourceBytes / (1024 * 1024))}MB.`);
+      return;
+    }
+
+    let fileToUse = file;
+
+    if (isHeicSource) {
+      setIsConvertingHeic(true);
+      try {
+        fileToUse = await convertHeicToJpeg(file);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't convert this HEIC photo. Try a JPEG or PNG instead.");
+        setIsConvertingHeic(false);
+        return;
+      }
+      setIsConvertingHeic(false);
+    }
+
+    setMediaFile(fileToUse);
+    setMediaPreviewUrl(URL.createObjectURL(fileToUse));
   }
 
   function handleRemoveMedia() {
@@ -179,13 +202,20 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
             ref={fileInputRef}
             id="media"
             type="file"
-            accept={ALLOWED_MEDIA_TYPES.join(",")}
+            accept={`${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif`}
             capture={initialSource === "camera" ? "environment" : undefined}
             onChange={handleMediaChange}
             className="hidden"
           />
 
-          {mediaPreviewUrl ? (
+          {isConvertingHeic ? (
+            <div
+              aria-live="polite"
+              className="grid size-24 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-center text-[10px] font-semibold text-stone-400"
+            >
+              Converting…
+            </div>
+          ) : mediaPreviewUrl ? (
             <div className="relative size-24">
               <button
                 type="button"

@@ -7,7 +7,7 @@ import DemoPhoto from "@/components/DemoPhoto";
 import { useSavedPostIds } from "@/components/PostCard";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
-import { useAllPosts } from "@/lib/posts";
+import { useAllPostsState } from "@/lib/posts";
 
 type PostDetailProps = {
   postId: number;
@@ -61,13 +61,37 @@ function CommentIcon() {
   );
 }
 
+/** Neutral placeholder shown only while posts are loading — never the real "not found" state. */
+function PostDetailSkeleton() {
+  return (
+    <main className="relative mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-24 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
+      <div className="flex items-center gap-3 border-b border-stone-100 px-4 py-3">
+        <div className="size-9 shrink-0 animate-pulse rounded-full bg-stone-200" />
+        <div className="size-9 shrink-0 animate-pulse rounded-full bg-stone-200" />
+        <div className="h-4 flex-1 animate-pulse rounded bg-stone-200" />
+        <div className="size-9 shrink-0 animate-pulse rounded-full bg-stone-200" />
+      </div>
+      <div className="aspect-[4/5] w-full animate-pulse bg-stone-200" />
+      <div className="space-y-3 px-5 pt-5">
+        <div className="h-5 w-3/4 animate-pulse rounded bg-stone-200" />
+        <div className="h-4 w-full animate-pulse rounded bg-stone-200" />
+        <div className="h-4 w-5/6 animate-pulse rounded bg-stone-200" />
+      </div>
+    </main>
+  );
+}
+
 export default function PostDetail({ postId }: PostDetailProps) {
   const router = useRouter();
-  const posts = useAllPosts();
+  const { posts, loading } = useAllPostsState();
   const post = posts.find((candidate) => candidate.id === postId);
   const savedPostIds = useSavedPostIds();
   const commentsSectionRef = useRef<HTMLDivElement>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  if (loading) {
+    return <PostDetailSkeleton />;
+  }
 
   if (!post) {
     return (

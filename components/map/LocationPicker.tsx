@@ -14,8 +14,11 @@ const WORLD_CENTER: LatLng = { lat: 20, lng: 0 };
 const WORLD_ZOOM = 2;
 const PICKED_ZOOM = 15;
 
+// The composer's own in-progress location pick — deliberately distinct from
+// the map/cluster post markers, which are untouched by this.
+const PIN_ICON_SIZE = 32;
 const PIN_HTML = `
-  <div style="width:28px;height:28px;border-radius:9999px 9999px 9999px 0;background:#f97316;border:2px solid white;box-shadow:0 4px 10px rgba(0,0,0,0.25);transform:rotate(45deg) translate(-2px,-2px);"></div>
+  <div style="width:${PIN_ICON_SIZE}px;height:${PIN_ICON_SIZE}px;display:flex;align-items:center;justify-content:center;font-size:26px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.35));">📍</div>
 `;
 
 export default function LocationPicker({ value, onChange }: LocationPickerProps) {
@@ -40,8 +43,8 @@ export default function LocationPicker({ value, onChange }: LocationPickerProps)
       const icon = leaflet.divIcon({
         html: PIN_HTML,
         className: "",
-        iconSize: [28, 28],
-        iconAnchor: [8, 26],
+        iconSize: [PIN_ICON_SIZE, PIN_ICON_SIZE],
+        iconAnchor: [PIN_ICON_SIZE / 2, PIN_ICON_SIZE / 2],
       });
       markerRef.current = leaflet
         .marker([coords.lat, coords.lng], { icon, draggable: true })

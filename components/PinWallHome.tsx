@@ -7,13 +7,29 @@ import CategoryChips from "./CategoryChips";
 import MasonryFeed from "./MasonryFeed";
 import TopBar from "./TopBar";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useAllPosts } from "@/lib/posts";
+import { useAllPostsState } from "@/lib/posts";
 import { filterPostsInBounds, useSavedMapViewport } from "@/lib/map/viewport";
+
+const SKELETON_HEIGHTS = ["h-40", "h-56", "h-32", "h-48", "h-60", "h-36"];
+
+/** Neutral placeholder shown only while posts are loading — never a real empty state. */
+function FeedSkeleton() {
+  return (
+    <div className="columns-2 gap-2.5 px-3">
+      {SKELETON_HEIGHTS.map((height, index) => (
+        <div
+          key={index}
+          className={`mb-2.5 break-inside-avoid animate-pulse overflow-hidden rounded-2xl bg-stone-200 ${height}`}
+        />
+      ))}
+    </div>
+  );
+}
 
 export default function PinWallHome() {
   const [selectedTab, setSelectedTab] = useState("Explore");
   const { user, loading } = useAuth();
-  const posts = useAllPosts();
+  const { posts, loading: postsLoading } = useAllPostsState();
   const savedViewport = useSavedMapViewport();
 
   const isFollowingTab = selectedTab === "Following";
@@ -47,7 +63,9 @@ export default function PinWallHome() {
         </div>
       ) : isMapsTab ? (
         savedViewport?.bounds ? (
-          mapsFeedPosts.length > 0 ? (
+          postsLoading ? (
+            <FeedSkeleton />
+          ) : mapsFeedPosts.length > 0 ? (
             <>
               <div className="flex items-center justify-end px-4 pb-1 pt-3">
                 <Link href="/map" className="text-xs font-bold text-orange-600">
@@ -76,6 +94,8 @@ export default function PinWallHome() {
             </Link>
           </div>
         )
+      ) : postsLoading ? (
+        <FeedSkeleton />
       ) : (
         <MasonryFeed posts={posts} />
       )}
