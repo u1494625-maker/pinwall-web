@@ -7,6 +7,7 @@ import type { Post, PostType } from "@/types/post";
 /** snake_case shape of a `posts` row, as returned by Supabase/PostgREST. */
 type PostRow = {
   id: number;
+  created_at: string;
   post_type: PostType;
   image: string | null;
   image_alt: string | null;
@@ -45,6 +46,7 @@ function rowToPost(row: PostRow): Post {
     longitude: row.longitude ?? undefined,
     locationName: row.location_name ?? undefined,
     userId: row.user_id ?? undefined,
+    createdAt: row.created_at,
   };
 }
 

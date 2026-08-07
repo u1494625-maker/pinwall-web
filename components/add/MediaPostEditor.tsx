@@ -1,11 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import ComposerBottomBar from "@/components/add/ComposerBottomBar";
+import ComposerTopBar from "@/components/add/ComposerTopBar";
 import PostLocationFields from "@/components/add/PostLocationFields";
+import TagChipInput from "@/components/add/TagChipInput";
+import TitleField from "@/components/add/TitleField";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { addPost } from "@/lib/posts";
 import {
   ALLOWED_MEDIA_TYPES,
@@ -36,10 +40,9 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [showOnMap, setShowOnMap] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationName, setLocationName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -106,7 +109,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       return;
     }
 
-    if (showOnMap && (!coords || !locationName.trim())) {
+    if (showOnMap && !coords) {
       setError("Choose a location on the map before publishing.");
       return;
     }
@@ -117,33 +120,36 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
 
     try {
       const postType = mediaPostTypeFor(mediaFile);
+      // Measured synchronously here (not pre-fetched at selection time) so an
+      // image post can never publish with a guessed/default aspect ratio just
+      // because measurement hadn't finished yet — it either has the real
+      // ratio by the time this resolves, or publishing fails with a real error.
+      const imageAspect =
+        postType === "video" ? "aspect-[4/5]" : await measureImageAspectRatio(mediaPreviewUrl!);
+
       const { url, path } = await uploadPostMedia(mediaFile, user.id);
       uploadedPath = path;
 
       const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
 
-      const post = await addPost({
+      await addPost({
         postType,
         image: url,
         imageAlt: title.trim(),
-        imageAspect: "aspect-[4/5]",
+        imageAspect,
         title: title.trim(),
         caption: caption.trim(),
-        tags: tagsInput
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean),
+        tags,
         author: authorName,
         rating: 0,
         ratingCount: "New",
         showOnMap,
         latitude: showOnMap ? coords?.lat : undefined,
         longitude: showOnMap ? coords?.lng : undefined,
-        locationName: showOnMap ? locationName.trim() : undefined,
         userId: user.id,
       });
 
-      router.push(`/post/${post.id}`);
+      router.replace("/me");
     } catch (err) {
       if (uploadedPath) {
         try {
@@ -164,31 +170,11 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const isVideoPreview = mediaFile?.type.startsWith("video/") ?? false;
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] px-5 pb-28 pt-8 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <header>
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600">Share a find</p>
-        <h1 className="mt-1 text-2xl font-black tracking-tight">Add a Spot</h1>
-        <p className="mt-1 text-sm text-stone-500">Tell other students what makes it worth a visit.</p>
-      </header>
+    <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
+      <ComposerTopBar />
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5 px-5 pt-4">
         <div>
-          <label className="text-xs font-bold text-stone-700" htmlFor="title">
-            Title
-          </label>
-          <input
-            id="title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Blue Bottle Coffee — Mint Plaza"
-            className="mt-1.5 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-orange-400"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-bold text-stone-700" htmlFor="media">
-            Photo or video
-          </label>
           <input
             ref={fileInputRef}
             id="media"
@@ -200,100 +186,61 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           />
 
           {mediaPreviewUrl ? (
-            <div className="mt-1.5">
-              {isVideoPreview ? (
-                <video
-                  src={mediaPreviewUrl}
-                  controls
-                  playsInline
-                  muted
-                  className="aspect-[4/3] w-full rounded-xl bg-black object-contain"
-                />
-              ) : (
-                <DemoPhoto src={mediaPreviewUrl} alt="Media preview" className="aspect-[4/3] w-full rounded-xl" />
-              )}
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="rounded-full bg-stone-100 px-3 py-1.5 text-[11px] font-bold text-stone-700 hover:bg-orange-100"
-                >
-                  Replace media
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRemoveMedia}
-                  className="rounded-full bg-stone-100 px-3 py-1.5 text-[11px] font-bold text-stone-700 hover:bg-orange-100"
-                >
-                  Remove media
-                </button>
-              </div>
+            <div className="relative size-24">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Replace media"
+                className="block size-24 overflow-hidden rounded-2xl"
+              >
+                {isVideoPreview ? (
+                  <video src={mediaPreviewUrl} muted playsInline className="size-full object-cover" />
+                ) : (
+                  <DemoPhoto src={mediaPreviewUrl} alt="Media preview" className="size-full" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoveMedia}
+                aria-label="Remove media"
+                className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-stone-900 text-[10px] text-white"
+              >
+                ×
+              </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="mt-1.5 flex w-full items-center justify-center rounded-xl border border-dashed border-stone-300 bg-white px-3 py-6 text-sm font-semibold text-stone-500 hover:border-orange-400"
+              aria-label="Add a photo or video"
+              className="grid size-24 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-2xl text-stone-400"
             >
-              + Choose a photo or video
+              +
             </button>
           )}
         </div>
 
-        <div>
-          <label className="text-xs font-bold text-stone-700" htmlFor="caption">
-            Caption
-          </label>
-          <textarea
-            id="caption"
-            value={caption}
-            onChange={(event) => setCaption(event.target.value)}
-            rows={3}
-            placeholder="What should people know before they go?"
-            className="mt-1.5 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-orange-400"
-          />
-        </div>
+        <TitleField value={title} onChange={setTitle} />
 
-        <div>
-          <label className="text-xs font-bold text-stone-700" htmlFor="tags">
-            Tags
-          </label>
-          <input
-            id="tags"
-            value={tagsInput}
-            onChange={(event) => setTagsInput(event.target.value)}
-            placeholder="coffee, downtown, workspot"
-            className="mt-1.5 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-orange-400"
-          />
-          <p className="mt-1 text-[11px] text-stone-400">Separate tags with commas.</p>
-        </div>
+        <textarea
+          id="caption"
+          value={caption}
+          onChange={(event) => setCaption(event.target.value)}
+          rows={6}
+          placeholder="Share something useful…"
+          className="w-full resize-none border-none bg-transparent text-base leading-relaxed text-stone-900 outline-none placeholder:text-stone-400"
+        />
+
+        <TagChipInput tags={tags} onTagsChange={setTags} />
 
         <PostLocationFields
           showOnMap={showOnMap}
           onToggleShowOnMap={() => setShowOnMap((prev) => !prev)}
           coords={coords}
           onCoordsChange={setCoords}
-          locationName={locationName}
-          onLocationNameChange={setLocationName}
         />
 
-        {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
-
-        <div className="flex gap-3 pt-2">
-          <Link
-            href="/"
-            className="flex-1 rounded-full border border-stone-300 px-5 py-3 text-center text-sm font-bold text-stone-700"
-          >
-            Cancel
-          </Link>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="flex-1 rounded-full bg-stone-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-60"
-          >
-            {isSubmitting ? "Publishing…" : "Publish"}
-          </button>
-        </div>
+        <ComposerBottomBar isSubmitting={isSubmitting} error={error} />
       </form>
     </main>
   );

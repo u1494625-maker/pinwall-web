@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import AddPostActionSheet, { type AddPostChoice } from "./add/AddPostActionSheet";
-import DemoPhoto from "./DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
 const navItems = [
@@ -21,12 +20,9 @@ export default function BottomNav() {
   const { user } = useAuth();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
-  if (pathname === "/search") {
+  if (pathname === "/search" || pathname.startsWith("/post/") || pathname.startsWith("/add")) {
     return null;
   }
-
-  const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
-  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? undefined;
 
   function handleChoose(choice: AddPostChoice) {
     setIsSheetOpen(false);
@@ -44,7 +40,6 @@ export default function BottomNav() {
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const isAddButton = item.href === "/add";
-          const isMeItem = item.href === "/me";
 
           const content = isAddButton ? (
             <span
@@ -52,19 +47,6 @@ export default function BottomNav() {
               className="grid size-12 place-items-center rounded-full bg-orange-500 text-2xl text-white shadow-lg shadow-orange-200"
             >
               {item.icon}
-            </span>
-          ) : isMeItem && user ? (
-            <span className="flex flex-col items-center gap-0.5">
-              {avatarUrl ? (
-                <DemoPhoto src={avatarUrl} alt="" className="size-6 rounded-full" />
-              ) : (
-                <span className="grid size-6 place-items-center rounded-full bg-stone-200 text-[10px] font-black text-stone-600">
-                  {(displayName ?? "?").charAt(0).toUpperCase()}
-                </span>
-              )}
-              <span className="max-w-[3.25rem] truncate text-[10px] font-bold leading-none">
-                {displayName ?? "Me"}
-              </span>
             </span>
           ) : (
             item.label

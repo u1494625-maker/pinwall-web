@@ -19,4 +19,5 @@ export type Post = {
   longitude?: number;
   locationName?: string;
   userId?: string;
+  createdAt?: string;
 };

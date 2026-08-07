@@ -1,45 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import RequireAuth from "@/components/auth/RequireAuth";
 import DemoPhoto from "@/components/DemoPhoto";
-import { useSavedPostIds } from "@/components/PostCard";
-import PostVideoTile from "@/components/PostVideoTile";
+import PostCard, { useSavedPostIds } from "@/components/PostCard";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
-import type { Post } from "@/types/post";
 
 const profileTabs = ["Posts", "Saved"] as const;
 type ProfileTab = (typeof profileTabs)[number];
-
-function PostGridTile({ post }: { post: Post }) {
-  if (post.postType === "text") {
-    return (
-      <Link
-        href={`/post/${post.id}`}
-        className="flex aspect-[3/4] flex-col justify-center overflow-hidden rounded-xl bg-stone-100 p-3"
-      >
-        <p className="line-clamp-4 text-xs font-bold leading-snug text-stone-900">{getDisplayTitle(post)}</p>
-        <p className="mt-1.5 line-clamp-3 text-[10px] leading-relaxed text-stone-500">{post.caption}</p>
-      </Link>
-    );
-  }
-
-  return (
-    <Link href={`/post/${post.id}`} className="relative block aspect-[3/4] overflow-hidden rounded-xl">
-      {post.postType === "video" && post.image ? (
-        <PostVideoTile src={post.image} className="absolute inset-0" />
-      ) : (
-        <DemoPhoto src={post.image ?? ""} alt={post.imageAlt ?? ""} className="absolute inset-0" />
-      )}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-8">
-        <p className="line-clamp-2 text-[11px] font-bold leading-tight text-white">{getDisplayTitle(post)}</p>
-      </div>
-    </Link>
-  );
-}
 
 function MeContent() {
   const { user, signOut } = useAuth();
@@ -129,9 +98,9 @@ function MeContent() {
 
         <div className="p-3">
           {gridPosts.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="columns-2 gap-2">
               {gridPosts.map((post) => (
-                <PostGridTile key={post.id} post={post} />
+                <PostCard key={post.id} post={post} />
               ))}
             </div>
           ) : (
