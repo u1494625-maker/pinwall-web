@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useSavedPostIds } from "@/components/PostCard";
+import PostManageSheet from "@/components/post/PostManageSheet";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import { useAllPostsState } from "@/lib/posts";
@@ -61,6 +63,16 @@ function CommentIcon() {
   );
 }
 
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-3.5">
+      <circle cx="5" cy="12" r="1.75" />
+      <circle cx="12" cy="12" r="1.75" />
+      <circle cx="19" cy="12" r="1.75" />
+    </svg>
+  );
+}
+
 /** Neutral placeholder shown only while posts are loading — never the real "not found" state. */
 function PostDetailSkeleton() {
   return (
@@ -83,11 +95,16 @@ function PostDetailSkeleton() {
 
 export default function PostDetail({ postId }: PostDetailProps) {
   const router = useRouter();
+  const { user } = useAuth();
   const { posts, loading } = useAllPostsState();
   const post = posts.find((candidate) => candidate.id === postId);
   const savedPostIds = useSavedPostIds();
   const commentsSectionRef = useRef<HTMLDivElement>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [manageSheetOpen, setManageSheetOpen] = useState(false);
+  // Bumped only when opening, so PostManageSheet remounts with fresh internal state each
+  // time — it stays mounted (same key) through its own close animation when closing.
+  const [manageSheetKey, setManageSheetKey] = useState(0);
 
   if (loading) {
     return <PostDetailSkeleton />;
@@ -106,6 +123,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
   }
 
   const isSaved = savedPostIds.includes(post.id);
+  const isOwner = Boolean(user && post.userId && user.id === post.userId);
 
   function toggleSaved() {
     if (!post) return;
@@ -248,7 +266,31 @@ export default function PostDetail({ postId }: PostDetailProps) {
             </button>
           </div>
         </div>
+
+        {isOwner ? (
+          <button
+            type="button"
+            onClick={() => {
+              setManageSheetKey((key) => key + 1);
+              setManageSheetOpen(true);
+            }}
+            className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-stone-400"
+          >
+            <MoreIcon />
+            Manage post
+          </button>
+        ) : null}
       </div>
+
+      {isOwner ? (
+        <PostManageSheet
+          key={manageSheetKey}
+          open={manageSheetOpen}
+          post={post}
+          onClose={() => setManageSheetOpen(false)}
+          onDeleted={() => router.replace("/me")}
+        />
+      ) : null}
 
       <div className="fixed inset-x-0 bottom-0 z-30 mx-auto flex w-full max-w-md items-stretch border-t border-stone-200 bg-white/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur">
         <button
