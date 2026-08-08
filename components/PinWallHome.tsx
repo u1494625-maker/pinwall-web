@@ -4,27 +4,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
-import MasonryFeed from "./MasonryFeed";
+import MasonryFeed, { FeedSkeleton } from "./MasonryFeed";
 import TopBar from "./TopBar";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useAllPostsState } from "@/lib/posts";
 import { filterPostsInBounds, useSavedMapViewport } from "@/lib/map/viewport";
-
-const SKELETON_HEIGHTS = ["h-40", "h-56", "h-32", "h-48", "h-60", "h-36"];
-
-/** Neutral placeholder shown only while posts are loading — never a real empty state. */
-function FeedSkeleton() {
-  return (
-    <div className="columns-2 gap-2.5 px-3">
-      {SKELETON_HEIGHTS.map((height, index) => (
-        <div
-          key={index}
-          className={`mb-2.5 break-inside-avoid animate-pulse overflow-hidden rounded-2xl bg-stone-200 ${height}`}
-        />
-      ))}
-    </div>
-  );
-}
 
 export default function PinWallHome() {
   const [selectedTab, setSelectedTab] = useState("Explore");

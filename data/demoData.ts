@@ -67,18 +67,4 @@ export const demoConversations: DemoConversation[] = [
   },
 ];
 
-export const demoRecentSearches = [
-  "Cheap eats",
-  "Rooftop study",
-  "Bookstores",
-];
-
-export const demoTrendingSearches = [
-  "Late-night food",
-  "Quiet study spots",
-  "Coffee near campus",
-  "Weekend activities",
-  "Hidden outdoor spots",
-];
-
 // ===== DEMO CONTENT END =====

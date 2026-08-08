@@ -2,6 +2,26 @@ import Link from "next/link";
 import type { Post } from "@/types/post";
 import PostCard from "./PostCard";
 
+const SKELETON_HEIGHTS = ["h-40", "h-56", "h-32", "h-48", "h-60", "h-36"];
+
+/**
+ * Neutral placeholder shown only while posts are loading — never a real empty
+ * state. Shares this file with MasonryFeed so its columns-2 gap-2.5 px-3
+ * wrapper always stays visibly in sync with the real feed's own layout.
+ */
+export function FeedSkeleton() {
+  return (
+    <div className="columns-2 gap-2.5 px-3">
+      {SKELETON_HEIGHTS.map((height, index) => (
+        <div
+          key={index}
+          className={`mb-2.5 break-inside-avoid animate-pulse overflow-hidden rounded-2xl bg-stone-200 ${height}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 type MasonryFeedProps = {
   posts: Post[];
 };

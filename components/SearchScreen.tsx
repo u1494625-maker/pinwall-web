@@ -1,32 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import {
-  demoRecentSearches,
-  demoTrendingSearches,
-} from "@/data/demoData";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState, type FormEvent } from "react";
+import MasonryFeed, { FeedSkeleton } from "@/components/MasonryFeed";
+import { searchPosts } from "@/lib/search";
+import { useAllPostsState } from "@/lib/posts";
 
 export default function SearchScreen() {
-  const [query, setQuery] = useState("");
-  const [recentSearches, setRecentSearches] = useState([
-    ...demoRecentSearches,
-  ]);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const q = searchParams.get("q") ?? "";
+  const trimmedQuery = q.trim();
+
+  // Seeded from the URL so loading /search?q=... directly pre-fills the
+  // input instead of showing a blank box next to populated results.
+  const [draft, setDraft] = useState(() => searchParams.get("q") ?? "");
+
+  const { posts, loading: postsLoading } = useAllPostsState();
+
+  const results = useMemo(
+    () => (trimmedQuery ? searchPosts(posts, trimmedQuery) : []),
+    [posts, trimmedQuery],
+  );
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedQuery = query.trim();
+    const next = draft.trim();
+    if (!next) return;
 
-    if (!trimmedQuery) {
-      return;
-    }
-
-    setRecentSearches((currentSearches) => [
-      trimmedQuery,
-      ...currentSearches.filter(
-        (search) => search.toLowerCase() !== trimmedQuery.toLowerCase(),
-      ),
-    ].slice(0, 5));
+    // replace (not push) so repeated searches update one history entry
+    // instead of stacking; URLSearchParams serializes spaces as "+".
+    router.replace(`/search?${new URLSearchParams({ q: next }).toString()}`);
   }
 
   return (
@@ -40,15 +46,18 @@ export default function SearchScreen() {
           >
             ‹
           </Link>
-          <form onSubmit={submitSearch} className="flex flex-1 items-center gap-2 rounded-full bg-stone-100 px-4 py-3 focus-within:ring-2 focus-within:ring-orange-300">
+          <form
+            onSubmit={submitSearch}
+            className="flex flex-1 items-center gap-2 rounded-full bg-stone-100 px-4 py-3 focus-within:ring-2 focus-within:ring-orange-300"
+          >
             <span aria-hidden="true" className="text-stone-500">⌕</span>
             <label htmlFor="search-input" className="sr-only">Search places</label>
             <input
               id="search-input"
               type="search"
               autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
               placeholder="Search cafés, study spots, food..."
               className="min-w-0 flex-1 bg-transparent text-sm text-stone-900 outline-none placeholder:text-stone-500"
             />
@@ -56,56 +65,21 @@ export default function SearchScreen() {
         </div>
       </header>
 
-      <section className="px-5 py-7" aria-labelledby="recent-heading">
-        <div className="flex items-center justify-between">
-          <h1 id="recent-heading" className="text-lg font-black">Recent</h1>
-          <button
-            type="button"
-            onClick={() => setRecentSearches([])}
-            className="text-xs font-semibold text-stone-500"
-          >
-            Clear all
-          </button>
+      {!trimmedQuery ? (
+        <div className="px-6 py-20 text-center">
+          <p className="text-sm text-stone-500">Search for cafés, study spots, food, or a friend&apos;s post.</p>
         </div>
-
-        {recentSearches.length > 0 ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {recentSearches.map((search) => (
-              <button
-                key={search}
-                type="button"
-                onClick={() => setQuery(search)}
-                className="rounded-full border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700"
-              >
-                {search}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-4 text-sm text-stone-500">No recent searches.</p>
-        )}
-      </section>
-
-      <section className="border-t border-stone-200 px-5 py-7" aria-labelledby="trending-heading">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600">Popular now</p>
-        <h2 id="trending-heading" className="mt-1 text-lg font-black">Trending searches</h2>
-
-        <ol className="mt-4 divide-y divide-stone-200">
-          {demoTrendingSearches.map((search, index) => (
-            <li key={search}>
-              <button
-                type="button"
-                onClick={() => setQuery(search)}
-                className="flex w-full items-center gap-4 py-4 text-left"
-              >
-                <span className="w-5 text-sm font-black text-orange-500">{index + 1}</span>
-                <span className="flex-1 text-sm font-semibold text-stone-800">{search}</span>
-                <span aria-hidden="true" className="text-stone-400">↗</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </section>
+      ) : postsLoading ? (
+        <FeedSkeleton />
+      ) : results.length === 0 ? (
+        <div className="mx-4 mt-6 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
+          <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-orange-100 text-2xl">⌕</div>
+          <h2 className="text-lg font-bold">No results for &ldquo;{trimmedQuery}&rdquo;</h2>
+          <p className="mt-2 text-sm text-stone-500">Try different keywords.</p>
+        </div>
+      ) : (
+        <MasonryFeed posts={results} />
+      )}
     </main>
   );
 }
