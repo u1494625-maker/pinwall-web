@@ -1,0 +1,27 @@
+-- NOT executed automatically. Review, then run in your Supabase project's SQL
+-- editor once you're ready — until then, an owner's post-edit flow will be
+-- rejected at the database layer even though RLS already permits it.
+--
+-- Context: owner-only post editing needs to UPDATE the `posts` row. RLS
+-- already restricts this correctly:
+--
+--   create policy "Users can update their own posts"
+--     on public.posts for update to authenticated
+--     using (auth.uid() = user_id) with check (auth.uid() = user_id);
+--   (see auth_and_ownership.sql)
+--
+-- That policy still governs *which* rows can be updated and still requires
+-- auth.uid() = user_id on both the read side (using) and the write side
+-- (with check) — this file does not loosen it in any way.
+--
+-- But — as discovered with DELETE in post_deletion.sql — an RLS policy only
+-- restricts which rows an operation can touch; it does not by itself grant
+-- the `authenticated` role permission to run that operation on the table at
+-- all. Postgres checks both layers independently for every statement. The
+-- `authenticated` role has never been granted UPDATE on `public.posts`, so
+-- every update attempt would fail before RLS's `auth.uid() = user_id` check
+-- is ever reached — regardless of ownership.
+--
+-- Written to be safely re-runnable (GRANT is naturally idempotent).
+
+grant update on table public.posts to authenticated;

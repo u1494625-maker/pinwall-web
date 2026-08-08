@@ -151,6 +151,46 @@ export async function deletePost(id: number): Promise<void> {
   }
 }
 
+/** The subset of a post's fields Phase 1 of Edit is allowed to change. */
+export type PostEditableFields = {
+  title: string | null;
+  caption: string;
+  tags: string[];
+  showOnMap: boolean;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+/** Updates only the approved editable fields on a post row — never image/post_type/user_id/etc. */
+export async function updatePost(id: number, fields: PostEditableFields): Promise<void> {
+  if (!isSupabaseConfigured) {
+    throw new Error(
+      "Supabase isn't configured — add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local.",
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .update({
+      title: fields.title,
+      caption: fields.caption,
+      tags: fields.tags,
+      show_on_map: fields.showOnMap,
+      latitude: fields.latitude,
+      longitude: fields.longitude,
+    })
+    .eq("id", id)
+    .select("id");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error("Post could not be updated — it may not exist, or you may not own it.");
+  }
+}
+
 /**
  * Fetches every post on mount, exposing loading state alongside the data so
  * callers can distinguish "still loading" from "genuinely empty" — `posts`

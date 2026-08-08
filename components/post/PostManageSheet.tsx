@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { deletePost } from "@/lib/posts";
 import { deletePostMedia, getStoragePathFromPublicUrl } from "@/lib/storage";
@@ -20,13 +21,14 @@ const CLOSE_ANIMATION_MS = 200;
  * Built on the native <dialog> element, matching components/add/AddPostActionSheet.tsx's
  * pattern (showModal() backdrop + slide-up transition) rather than a new sheet mechanism.
  *
- * Edit and Privacy rows are shown now (disabled) so the sheet's shape is already settled
- * for the phases that implement them — they have no onClick and do nothing when tapped.
+ * Privacy is still shown disabled ("Soon") so the sheet's shape stays settled for the
+ * phase that implements it — it has no onClick and does nothing when tapped.
  *
  * The parent remounts this component (via a changing `key`) each time it opens, so internal
  * step/error/deletion state always starts fresh without resetting state inside an effect.
  */
 export default function PostManageSheet({ open, post, onClose, onDeleted }: PostManageSheetProps) {
+  const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [hasEnteredDom, setHasEnteredDom] = useState(false);
   const [step, setStep] = useState<Step>("menu");
@@ -115,11 +117,10 @@ export default function PostManageSheet({ open, post, onClose, onDeleted }: Post
             <div className="space-y-1 p-3">
               <button
                 type="button"
-                disabled
-                className="flex w-full items-center justify-between rounded-2xl px-4 py-4 text-left opacity-40"
+                onClick={() => router.push(`/post/${post.id}/edit`)}
+                className="flex w-full items-center rounded-2xl px-4 py-4 text-left transition-colors hover:bg-stone-50 active:bg-stone-100"
               >
                 <span className="text-base font-semibold text-stone-900">Edit</span>
-                <span className="text-[11px] font-bold uppercase tracking-wide text-stone-400">Soon</span>
               </button>
               <button
                 type="button"
