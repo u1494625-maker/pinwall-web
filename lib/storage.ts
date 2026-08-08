@@ -61,3 +61,24 @@ export async function deletePostMedia(path: string): Promise<void> {
     throw new Error(`Failed to remove uploaded file: ${error.message}`);
   }
 }
+
+/**
+ * Derives a `post-image` bucket object path from a stored Supabase public URL, so a
+ * post's media can be deleted without a separate stored-path column. Returns null
+ * (never throws) for anything that isn't a recognizable public URL for this bucket —
+ * callers must treat that as "nothing safe to delete", not silently proceed.
+ */
+export function getStoragePathFromPublicUrl(url: string): string | null {
+  const marker = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
+  const index = url.indexOf(marker);
+  if (index === -1) return null;
+
+  const rawPath = url.slice(index + marker.length).split(/[?#]/)[0];
+  if (!rawPath) return null;
+
+  try {
+    return decodeURIComponent(rawPath);
+  } catch {
+    return null;
+  }
+}

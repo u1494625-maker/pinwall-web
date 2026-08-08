@@ -132,6 +132,25 @@ export async function addPost(input: Omit<Post, "id">): Promise<Post> {
   return rowToPost(data);
 }
 
+/** Deletes a post row only — callers are responsible for any Storage cleanup. */
+export async function deletePost(id: number): Promise<void> {
+  if (!isSupabaseConfigured) {
+    throw new Error(
+      "Supabase isn't configured — add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local.",
+    );
+  }
+
+  const { data, error } = await supabase.from("posts").delete().eq("id", id).select("id");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error("Post could not be deleted — it may not exist, or you may not own it.");
+  }
+}
+
 /**
  * Fetches every post on mount, exposing loading state alongside the data so
  * callers can distinguish "still loading" from "genuinely empty" — `posts`
