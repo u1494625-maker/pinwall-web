@@ -13,7 +13,7 @@ import { buildClusterIndex, getVisibleMapFeatures, type PostClusterIndex } from 
 import { hasValidMapLocation, readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
 import type { Post } from "@/types/post";
-import PostClusterMarker from "./PostClusterMarker";
+import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
 import PostMapMarker from "./PostMapMarker";
 
 // Neutral starting point when no viewport has been saved yet and there's no post
@@ -115,8 +115,10 @@ export default function MapPage() {
             />,
           ),
           className: "",
-          iconSize: [80, 100],
-          iconAnchor: [40, 100],
+          // Anchored to the bottom-center of the fixed-size photo/pin bubble only — the
+          // caption label below it is variable-height and renders outside this box.
+          iconSize: [80, 80],
+          iconAnchor: [40, 80],
         });
         leaflet
           .marker([post.latitude, post.longitude], { icon })
@@ -128,6 +130,9 @@ export default function MapPage() {
           .addTo(layer);
       } else {
         const { cluster } = feature;
+        // Matches this cluster's actual rendered bubble size (48/56/64px) — not a fixed
+        // constant — so the anchor stays centered regardless of postCount.
+        const size = clusterMarkerSizePx(cluster.postCount);
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
             <PostClusterMarker
@@ -136,8 +141,8 @@ export default function MapPage() {
             />,
           ),
           className: "",
-          iconSize: [64, 64],
-          iconAnchor: [32, 32],
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
         });
         leaflet
           .marker([cluster.latitude, cluster.longitude], { icon })
@@ -302,14 +307,6 @@ export default function MapPage() {
   return (
     <main className="relative mx-auto h-screen w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div ref={containerRef} className="h-full w-full" />
-
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-4">
-        <div className="rounded-2xl bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600">Explore the map</p>
-          <h1 className="mt-0.5 text-lg font-black">Posts near you</h1>
-          <p className="mt-0.5 text-xs text-stone-500">Drag or pinch to explore. Tap a pin to preview.</p>
-        </div>
-      </div>
 
       {previewPost ? (
         <article className="absolute inset-x-3 bottom-24 z-20 flex gap-3 rounded-2xl bg-white/95 p-3 shadow-xl backdrop-blur">

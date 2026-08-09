@@ -26,8 +26,8 @@ export default function PostMapMarker({
   highlighted = false,
 }: PostMapMarkerProps) {
   return (
-    <div className="flex w-20 -translate-x-1/2 -translate-y-full flex-col items-center pb-1.5">
-      <div className="relative">
+    <div className="flex w-20 flex-col items-center pb-1.5">
+      <div className="relative w-full">
         {highlighted ? (
           <span className="absolute -inset-1.5 animate-ping rounded-xl bg-orange-400/50" />
         ) : null}

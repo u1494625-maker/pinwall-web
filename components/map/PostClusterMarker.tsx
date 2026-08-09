@@ -5,9 +5,18 @@ type PostClusterMarkerProps = {
   representativeImageUrl?: string;
 };
 
+/** The real rendered pixel size for a cluster bubble of this postCount — single source of
+ * truth for both this component's Tailwind class and MapPage's Leaflet iconSize/iconAnchor. */
+export function clusterMarkerSizePx(postCount: number): number {
+  if (postCount >= 50) return 64;
+  if (postCount >= 10) return 56;
+  return 48;
+}
+
 function sizeClassFor(postCount: number) {
-  if (postCount >= 50) return "size-16 text-base";
-  if (postCount >= 10) return "size-14 text-sm";
+  const size = clusterMarkerSizePx(postCount);
+  if (size === 64) return "size-16 text-base";
+  if (size === 56) return "size-14 text-sm";
   return "size-12 text-sm";
 }
 
@@ -21,7 +30,7 @@ export default function PostClusterMarker({
 }: PostClusterMarkerProps) {
   return (
     <div
-      className={`relative grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-white shadow-lg ${sizeClassFor(postCount)}`}
+      className={`relative grid place-items-center rounded-full border-2 border-white shadow-lg ${sizeClassFor(postCount)}`}
     >
       {representativeImageUrl ? (
         <DemoPhoto
