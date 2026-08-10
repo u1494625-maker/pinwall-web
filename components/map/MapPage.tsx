@@ -305,7 +305,7 @@ export default function MapPage() {
   }, [isMapReady, mapPosts, allPosts.length, targetPostId, updateMarkers]);
 
   return (
-    <main className="relative mx-auto h-screen w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
+    <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div ref={containerRef} className="h-full w-full" />
 
       {previewPost ? (

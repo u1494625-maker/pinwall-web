@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import AddPostActionSheet, { type AddPostChoice } from "./add/AddPostActionSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
@@ -14,11 +14,33 @@ const navItems = [
   { href: "/me", label: "Me" },
 ];
 
+// AuthProvider's `user` starts identical on server and client (always null), but
+// Supabase's session restore resolves in an effect shortly after mount — if
+// BottomNav's own first render ever happened later than that (confirmed to occur
+// when this was Suspense-wrapped; verified via a real reproduced hydration error),
+// it would read an already-updated `user` while the frozen server HTML still shows
+// the pre-restore value. Gating on this hydration flag — always false on both the
+// server and BottomNav's own first render, no matter when that render happens —
+// makes the two guaranteed to match regardless; only a later, ordinary re-render
+// (never a hydration comparison) reveals the button. Kept as a standing safeguard
+// even without the Suspense wrapper. Never gets a subscribe callback: it only ever
+// needs to flip once, from the fixed server value to "we're running on the client".
+function subscribeNever() {
+  return () => {};
+}
+function getIsHydrated() {
+  return true;
+}
+function getIsHydratedServerSnapshot() {
+  return false;
+}
+
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuth();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const isHydrated = useSyncExternalStore(subscribeNever, getIsHydrated, getIsHydratedServerSnapshot);
 
   if (pathname === "/search" || pathname.startsWith("/post/") || pathname.startsWith("/add")) {
     return null;
@@ -59,7 +81,8 @@ export default function BottomNav() {
           // Logged in: the "+" opens the creation sheet instead of navigating.
           // Logged out: it stays a plain link to /add, whose own RequireAuth
           // already shows LoginScreen — same behavior as before this change.
-          if (isAddButton && user) {
+          // isHydrated is required here, not just `user` — see the comment above.
+          if (isAddButton && isHydrated && user) {
             return (
               <button
                 key={item.href}

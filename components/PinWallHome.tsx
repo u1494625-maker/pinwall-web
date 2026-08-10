@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
@@ -10,11 +10,74 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { useAllPostsState } from "@/lib/posts";
 import { filterPostsInBounds, useSavedMapViewport } from "@/lib/map/viewport";
 
+type HomeTab = "Following" | "Explore" | "Maps";
+
+const HOME_TAB_KEY = "pinwall_home_tab";
+const VALID_HOME_TABS: readonly HomeTab[] = ["Following", "Explore", "Maps"];
+const DEFAULT_HOME_TAB: HomeTab = "Explore";
+
+function isValidHomeTab(value: string | null): value is HomeTab {
+  return value !== null && (VALID_HOME_TABS as readonly string[]).includes(value);
+}
+
+// sessionStorage's own "storage" event only fires in *other* tabs, never the tab that
+// made the change — so selecting a tab wouldn't otherwise update this same mount.
+// This small same-tab listener set is what makes clicking a tab feel immediate.
+const homeTabListeners = new Set<() => void>();
+
+function saveHomeTab(tab: HomeTab) {
+  try {
+    window.sessionStorage.setItem(HOME_TAB_KEY, tab);
+  } catch {
+    // Ignore storage failures (e.g. private browsing quota) — same as lib/map/viewport.ts.
+  }
+  homeTabListeners.forEach((listener) => listener());
+}
+
+function getHomeTabSnapshot(): string {
+  try {
+    return window.sessionStorage.getItem(HOME_TAB_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function getServerHomeTabSnapshot(): string {
+  return "";
+}
+
+function subscribeToHomeTab(onStoreChange: () => void) {
+  homeTabListeners.add(onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+  return () => {
+    homeTabListeners.delete(onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
+/**
+ * The currently selected Home tab, persisted per-browser-session. Deterministic and
+ * hydration-safe: getServerHomeTabSnapshot always returns "" (-> Explore) for both the
+ * server render and the client's first hydration pass — React's useSyncExternalStore
+ * contract guarantees that match — then reconciles to the real stored tab right after,
+ * same pattern as lib/map/viewport.ts's useSavedMapViewport.
+ */
+function useHomeTab(): HomeTab {
+  const raw = useSyncExternalStore(subscribeToHomeTab, getHomeTabSnapshot, getServerHomeTabSnapshot);
+  return isValidHomeTab(raw) ? raw : DEFAULT_HOME_TAB;
+}
+
 export default function PinWallHome() {
-  const [selectedTab, setSelectedTab] = useState("Explore");
+  const selectedTab = useHomeTab();
   const { user, loading } = useAuth();
   const { posts, loading: postsLoading } = useAllPostsState();
   const savedViewport = useSavedMapViewport();
+
+  function handleSelectTab(tab: string) {
+    if (isValidHomeTab(tab)) {
+      saveHomeTab(tab);
+    }
+  }
 
   const isFollowingTab = selectedTab === "Following";
   const isMapsTab = selectedTab === "Maps";
@@ -38,7 +101,7 @@ export default function PinWallHome() {
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <TopBar>
-        <CategoryChips selectedTab={selectedTab} onSelectTab={setSelectedTab} />
+        <CategoryChips selectedTab={selectedTab} onSelectTab={handleSelectTab} />
       </TopBar>
 
       {isFollowingTab ? (
