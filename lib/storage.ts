@@ -32,9 +32,15 @@ export type UploadedMedia = {
   path: string;
 };
 
-/** Uploads a file into the calling user's own folder in the `post-image` bucket. */
-export async function uploadPostMedia(file: File, userId: string): Promise<UploadedMedia> {
-  const path = `${userId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
+/**
+ * Uploads a file into the calling user's own folder in the `post-image` bucket,
+ * grouped under `draftId` (one per post being composed) so a post's media all
+ * lives under one prefix. `draftId` is generated client-side (crypto.randomUUID())
+ * before the post row exists — Storage RLS only checks the first path segment
+ * (the user id), so a client-generated id here is exactly as valid as a DB id.
+ */
+export async function uploadPostMedia(file: File, userId: string, draftId: string): Promise<UploadedMedia> {
+  const path = `${userId}/${draftId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
   const { error: uploadError } = await supabase.storage
     .from(STORAGE_BUCKET)
@@ -59,26 +65,5 @@ export async function deletePostMedia(path: string): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to remove uploaded file: ${error.message}`);
-  }
-}
-
-/**
- * Derives a `post-image` bucket object path from a stored Supabase public URL, so a
- * post's media can be deleted without a separate stored-path column. Returns null
- * (never throws) for anything that isn't a recognizable public URL for this bucket —
- * callers must treat that as "nothing safe to delete", not silently proceed.
- */
-export function getStoragePathFromPublicUrl(url: string): string | null {
-  const marker = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
-  const index = url.indexOf(marker);
-  if (index === -1) return null;
-
-  const rawPath = url.slice(index + marker.length).split(/[?#]/)[0];
-  if (!rawPath) return null;
-
-  try {
-    return decodeURIComponent(rawPath);
-  } catch {
-    return null;
   }
 }

@@ -19,14 +19,14 @@ import {
   deletePostMedia,
   uploadPostMedia,
 } from "@/lib/storage";
-import type { PostType } from "@/types/post";
+import type { MediaType } from "@/types/post";
 
 type MediaPostEditorProps = {
   /** How the user entered this editor — decides which file picker flavor to auto-open. */
   initialSource: "album" | "camera" | null;
 };
 
-function mediaPostTypeFor(file: File): PostType {
+function mediaTypeFor(file: File): MediaType {
   return file.type.startsWith("video/") ? "video" : "image";
 }
 
@@ -142,24 +142,22 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     let uploadedPath: string | null = null;
 
     try {
-      const postType = mediaPostTypeFor(mediaFile);
+      const mediaType = mediaTypeFor(mediaFile);
       // Measured synchronously here (not pre-fetched at selection time) so an
       // image post can never publish with a guessed/default aspect ratio just
       // because measurement hadn't finished yet — it either has the real
       // ratio by the time this resolves, or publishing fails with a real error.
-      const imageAspect =
-        postType === "video" ? "aspect-[4/5]" : await measureImageAspectRatio(mediaPreviewUrl!);
+      const aspectRatio = mediaType === "video" ? "4/5" : await measureImageAspectRatio(mediaPreviewUrl!);
 
-      const { url, path } = await uploadPostMedia(mediaFile, user.id);
+      // One draft id per publish attempt, groups this post's media (just one
+      // item for now) under a single Storage folder — see uploadPostMedia.
+      const draftId = crypto.randomUUID();
+      const { url, path } = await uploadPostMedia(mediaFile, user.id, draftId);
       uploadedPath = path;
 
       const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
 
       await addPost({
-        postType,
-        image: url,
-        imageAlt: title.trim(),
-        imageAspect,
         title: title.trim(),
         caption: caption.trim(),
         tags,
@@ -170,6 +168,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         latitude: showOnMap ? coords?.lat : undefined,
         longitude: showOnMap ? coords?.lng : undefined,
         userId: user.id,
+        media: [{ type: mediaType, url, storagePath: path, aspectRatio, position: 0 }],
       });
 
       router.replace("/me");

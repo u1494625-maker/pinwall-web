@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { deletePost } from "@/lib/posts";
-import { deletePostMedia, getStoragePathFromPublicUrl } from "@/lib/storage";
+import { deletePostMedia } from "@/lib/storage";
 import type { Post } from "@/types/post";
 
 type PostManageSheetProps = {
@@ -34,8 +34,10 @@ export default function PostManageSheet({ open, post, onClose, onDeleted }: Post
   const [step, setStep] = useState<Step>("menu");
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Remembers whether the Storage object is already gone, so a retry after a DB-delete
-  // failure only retries the DB delete — never calls deletePostMedia on the same path twice.
+  // Remembers whether every media item's Storage object is already gone, so a retry after
+  // a DB-delete failure only retries the DB delete — never re-runs deletePostMedia on
+  // paths already removed (harmless either way — remove() is a no-op on a missing object
+  // — but this avoids redundant calls on retry).
   const mediaDeletedRef = useRef(false);
 
   useEffect(() => {
@@ -73,14 +75,10 @@ export default function PostManageSheet({ open, post, onClose, onDeleted }: Post
     setError(null);
 
     try {
-      if (post.image && !mediaDeletedRef.current) {
-        const path = getStoragePathFromPublicUrl(post.image);
-        if (!path) {
-          setError("Couldn't safely locate this post's photo or video — nothing was deleted.");
-          setIsDeleting(false);
-          return;
+      if (post.media.length > 0 && !mediaDeletedRef.current) {
+        for (const item of post.media) {
+          await deletePostMedia(item.storagePath);
         }
-        await deletePostMedia(path);
         mediaDeletedRef.current = true;
       }
 

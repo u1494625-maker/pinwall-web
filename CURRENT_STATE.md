@@ -32,15 +32,22 @@ Global `BottomNav` (Home / Map / + / Messages / Me) renders on every route **exc
 
 ## Data model
 
-`types/post.ts`'s `Post`:
+`types/post.ts`'s `Post` — media is now a one-to-many array, not scalar fields:
 ```ts
-{
+type MediaType = "image" | "video";
+
+type PostMedia = {
   id: number;
-  postType: "image" | "video" | "text";
-  image: string | null;        // null for text posts
-  imageAlt: string | null;
-  imageAspect: string | null;  // see "Image aspect ratio" below
-  title: string | null;        // optional for text posts
+  type: MediaType;
+  url: string;
+  storagePath: string;  // kept alongside the URL so deletion never has to re-derive it
+  aspectRatio: string | null;
+  position: number;     // media[0] (position 0) is always the cover
+};
+
+type Post = {
+  id: number;
+  title: string | null;        // optional for text posts, or media posts without one
   caption: string;             // always required
   tags: string[];
   author: string;              // display name, not a foreign key
@@ -52,18 +59,21 @@ Global `BottomNav` (Home / Map / + / Messages / Me) renders on every route **exc
   locationName?: string;       // optional even when showOnMap is true
   userId?: string;
   createdAt?: string;
+  media: PostMedia[];          // ordered by position; empty for text posts
 }
 ```
+There is no `postType`/`post_type` anywhere anymore — "is this a text post" is simply `media.length === 0`; "is the cover a photo or video" is `media[0]?.type`. No per-post media discriminator is stored; it's fully derived from the media array's contents.
 
 **Supabase schema** (`supabase/*.sql`, cumulative, never migrated automatically — each file documents itself as "run manually in the SQL editor"):
-- `schema.sql` — base `posts` table, open RLS (pre-auth).
+- `schema.sql` — base `posts` table (now holding only post-level metadata — see `post_media.sql` below for the columns it originally also held), open RLS (pre-auth).
 - `auth_and_ownership.sql` — adds `user_id` (nullable, `on delete set null`), tightens RLS to `auth.uid() = user_id` for insert/update/delete, public read stays open; adds the `post-image` storage-folder-ownership policy.
-- `post_types_and_media.sql` — adds `post_type` (`check in ('image','video','text')`, default `'image'`), relaxes `NOT NULL` on `image`/`title`/`image_alt`/`image_aspect` so text posts can omit them.
-- `post_deletion.sql` — adds `grant delete on table public.posts to authenticated` (RLS alone wasn't sufficient — see Post Detail below) plus Storage `select`/`delete` RLS policies on `storage.objects` (own-folder-scoped, mirroring the existing upload policy) so an owner's post-delete flow can actually remove their media object, not just the `posts` row.
+- `post_types_and_media.sql` — historical: originally added `post_type` and relaxed `NOT NULL` on the old scalar media columns. Superseded by `post_media.sql`, which drops every column this file added.
+- `post_deletion.sql` — adds `grant delete on table public.posts to authenticated` (RLS alone wasn't sufficient — see Post Detail below) plus Storage `select`/`delete` RLS policies on `storage.objects` (own-folder-scoped, mirroring the existing upload policy) so an owner's post-delete flow can actually remove their media object(s), not just the `posts` row.
 - `post_editing.sql` — adds `grant update on table public.posts to authenticated`, the same table-privilege gap anticipated proactively for Edit after being discovered the hard way for Delete. The existing `"Users can update their own posts"` RLS policy (`auth_and_ownership.sql`) is unchanged.
+- `post_media.sql` — the multi-media migration: deletes all (test) posts, creates `post_media` (`post_id references posts(id) on delete cascade`, `media_type text check ('image'|'video')`, `url`, `storage_path`, `aspect_ratio`, `position`, `unique(post_id, position)`, indexed on `post_id`), its RLS (public select; insert/delete scoped through the parent post's `user_id`, since `post_media` has no `user_id` of its own), its table grants, the `create_post_with_media(post_input jsonb, media_input jsonb) returns bigint` RPC (security invoker — see Post creation below), and finally drops the legacy `posts.image` / `image_alt` / `image_aspect` / `post_type` columns outright. No dual-write/staged migration — there was no production data to preserve.
 - No `comments`, `likes`, or `follows` tables exist anywhere. No `is_private`/visibility column exists yet — every post is publicly readable.
 
-**Image aspect ratio** (`lib/postDisplay.ts`): `image_aspect` is a free-text column with two coexisting formats — legacy rows store a literal Tailwind class string (`"aspect-[4/5]"`, still used verbatim by video posts today), new image uploads store a bare `"width/height"` ratio (e.g. `"4032/3024"`, the file's real measured dimensions). `resolveImageAspectRatio()` extracts the numeric ratio from either format via one regex and falls back to `DEFAULT_IMAGE_ASPECT_RATIO` ("4/5") for anything unparseable. Consumers (`PostCard`, `app/me/page.tsx`'s grid tiles, `PostDetail`) apply it as an inline `style={{ aspectRatio }}`, never as a runtime-constructed Tailwind class (which Tailwind's static scanner couldn't detect). `measureImageAspectRatio()` reads a real image's natural dimensions client-side at publish time via `new Image()`; publishing blocks (a real error, not a silent fallback) if measurement fails.
+**Image aspect ratio** (`lib/postDisplay.ts`): `post_media.aspect_ratio` is a free-text column; `resolveImageAspectRatio()` extracts the numeric `"W/H"` ratio via a regex (tolerant of both the current bare format, e.g. `"4032/3024"`, and the legacy Tailwind-class-wrapped format some pre-migration code used, e.g. `"aspect-[4/5]"` — the regex just extracts the pair wherever it appears) and falls back to `DEFAULT_IMAGE_ASPECT_RATIO` ("4/5") for anything unparseable. Consumers (`PostCard`, `PostDetail`, `EditPostForm`) apply it as an inline `style={{ aspectRatio }}`, never as a runtime-constructed Tailwind class (which Tailwind's static scanner couldn't detect). `measureImageAspectRatio()` reads a real image's natural dimensions client-side at publish time via `new Image()`; publishing blocks (a real error, not a silent fallback) if measurement fails. Video posts still get a hardcoded `"4/5"` rather than a truly measured ratio — unchanged from before the migration, and explicitly noted as an optional future improvement, not a regression.
 
 ## Authentication
 
@@ -92,7 +102,9 @@ All three post-loading tabs (Explore, Maps, and `SearchScreen`) share a `FeedSke
 
 ## Post creation (`components/add/MediaPostEditor.tsx` / `TextPostEditor.tsx`)
 
-Reached via `BottomNav`'s "+" action sheet (Album / Camera / Text). `/add` and `/add/media` render the identical `MediaPostEditor` (two entry points, one component). Mobile-native composer chrome: a bare "‹" `ComposerTopBar`, a compact single-slot media tile (no multi-image support — `Post.image` is one field, not an array), a shared `TitleField` (40-char hard limit with a live counter), a hashtag-style `TagChipInput` (commits on Enter/comma, not Space, so multi-word tags stay possible), `PostLocationFields` (a slim "Show this post on the map" toggle that, when on, keeps the Leaflet `LocationPicker` visibly open at all times — no collapse-on-first-pin), and a full-width `ComposerBottomBar` "Post" button.
+Reached via `BottomNav`'s "+" action sheet (Album / Camera / Text). `/add` and `/add/media` render the identical `MediaPostEditor` (two entry points, one component). Mobile-native composer chrome: a bare "‹" `ComposerTopBar`, a compact single-slot media tile, a shared `TitleField` (40-char hard limit with a live counter), a hashtag-style `TagChipInput` (commits on Enter/comma, not Space, so multi-word tags stay possible), `PostLocationFields` (a slim "Show this post on the map" toggle that, when on, keeps the Leaflet `LocationPicker` visibly open at all times — no collapse-on-first-pin), and a full-width `ComposerBottomBar` "Post" button.
+
+**Data layer is multi-media-ready; the composer UI is not yet** (intentionally phased): the `posts`/`post_media` schema and `Post.media: PostMedia[]` type already support many photos/videos per post, but `MediaPostEditor`'s file input is still single-select — it always publishes with exactly one `media` item at `position: 0`. Publishing calls `addPost()` (`lib/posts.ts`), which invokes the `create_post_with_media` Postgres RPC (`supabase/post_media.sql`) to insert the `posts` row and its `post_media` row(s) in one transaction — avoiding a window where a public, publicly-readable post could exist with zero or partial media rows, which a plain two-step client insert couldn't guarantee. Each upload is grouped under `${userId}/${draftId}/...` in Storage (`draftId = crypto.randomUUID()`, generated client-side before the post exists — Storage RLS only checks the first path segment, so this needs no DB id). A true multi-select composer UI (multi-file picking, thumbnail reordering, per-item remove) is planned but not yet built.
 
 **Location rule**: showing on map requires only a placed pin — there is no place-name/address field anymore; `locationName` is simply absent for new coordinate-only posts (Post Detail's location link already falls back to "View on Map" text when `locationName` is missing).
 
@@ -106,9 +118,9 @@ Top bar (back, initial-letter avatar, author name + relative date, real Web Shar
 
 **Owner-only post management (Phase 2 of 3 — Delete + Edit; Privacy still unstarted):** if the signed-in user's id matches `post.userId`, a subtle "Manage post" entry renders just above the fixed bottom bar (absent from the DOM entirely for non-owners, not just hidden). Tapping it opens `components/post/PostManageSheet.tsx`, a Pinwall-styled bottom sheet (same native-`<dialog>` slide-up pattern as `components/add/AddPostActionSheet.tsx`) listing all three eventual actions — **Privacy** is still visibly present but `disabled` ("Soon", no fake behavior); **Edit** and **Delete** are both fully functional.
 
-*Delete*: requires an explicit confirm step (irreversible), then: derives the post's Storage object path from its stored public URL via `getStoragePathFromPublicUrl()` (`lib/storage.ts` — no separate stored-path column), removes it via the existing `deletePostMedia()`, then deletes the row via `deletePost()` (`lib/posts.ts`). If the media step fails, the DB row is never touched; if the Storage path can't be derived at all, deletion stops with an error rather than orphaning the file; if the DB delete fails after Storage succeeded, a retry only repeats the DB delete (tracked via a local ref, never re-runs the Storage removal). On success, redirects to `/me`.
+*Delete*: requires an explicit confirm step (irreversible), then: removes every one of the post's `post_media` Storage objects (`deletePostMedia()` per `item.storagePath`, `lib/storage.ts` — no URL-parsing needed since the path is stored directly), then deletes the `posts` row via `deletePost()` (`lib/posts.ts`) — its `post_media` rows disappear automatically via `on delete cascade`. If any media deletion fails, the DB row is never touched; if the DB delete fails after all media succeeded, a retry only repeats the DB delete (tracked via a local ref, never re-runs the already-done Storage removals). On success, redirects to `/me`.
 
-*Edit* (`/post/[id]/edit` → `components/post/EditPostForm.tsx`): title, caption, tags, and show-on-map/coordinates only — **media, `post_type`, and ownership are never editable**, and the image/video (if any) renders as a read-only preview at the top of the form (branching on `post.postType`, the same way `PostDetail` already does). One shared form handles all three post types, since removing media-replacement from scope removes the only real difference between them. Validation matches the original composer: caption always required, title required for image/video posts but optional for text posts, coordinates required whenever "Show on Map" is on. Turning "Show on Map" off and saving clears `latitude`/`longitude` to `null` rather than leaving them dormant. `updatePost()` (`lib/posts.ts`) only ever writes title/caption/tags/show_on_map/latitude/longitude — `location_name` is left untouched (no UI for it in this phase). The page itself re-derives ownership the same way Post Detail does (`useAuth()` + `post.userId`) and renders a clear denial/not-found state rather than the form for non-owners or signed-out visitors — that check is a UI convenience only; the real boundary is Postgres RLS.
+*Edit* (`/post/[id]/edit` → `components/post/EditPostForm.tsx`): title, caption, tags, and show-on-map/coordinates only — **media and ownership are never editable**, and the cover (`post.media[0]`, if any) renders as a read-only preview at the top of the form (branching on its `type`, the same way `PostDetail` already does). One shared form handles every post shape, since removing media-replacement from scope removes the only real difference between them. Validation matches the original composer: caption always required, title required whenever the post has media but optional for text posts (`media.length === 0`), coordinates required whenever "Show on Map" is on. Turning "Show on Map" off and saving clears `latitude`/`longitude` to `null` rather than leaving them dormant. `updatePost()` (`lib/posts.ts`) only ever writes title/caption/tags/show_on_map/latitude/longitude — `location_name` is left untouched (no UI for it in this phase), and media is never touched by Edit at all. The page itself re-derives ownership the same way Post Detail does (`useAuth()` + `post.userId`) and renders a clear denial/not-found state rather than the form for non-owners or signed-out visitors — that check is a UI convenience only; the real boundary is Postgres RLS.
 
 Both `deletePost()` and `updatePost()` follow the same verified-write pattern: chain `.select("id")` onto the mutation and throw if zero rows come back, so an RLS-silenced no-op (e.g. a missing table-level `GRANT`) is never mistaken for success. This was learned the hard way with Delete — a real end-to-end test against the live Supabase project found that the `authenticated` role needed an explicit `grant delete on table public.posts` *in addition to* the existing RLS policy, and that Storage's `remove()` needed a `select` policy alongside its `delete` policy (`supabase/post_deletion.sql`). The same gap was anticipated proactively for Edit (`supabase/post_editing.sql`, adding `grant update on table public.posts to authenticated`) rather than rediscovered.
 

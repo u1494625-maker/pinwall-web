@@ -10,7 +10,7 @@ import TagChipInput from "@/components/add/TagChipInput";
 import TitleField from "@/components/add/TitleField";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { resolveImageAspectRatio } from "@/lib/postDisplay";
+import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import { updatePost, useAllPostsState } from "@/lib/posts";
 import type { Post } from "@/types/post";
 
@@ -67,6 +67,7 @@ export default function EditPostForm({ postId }: EditPostFormProps) {
 
 function EditPostFields({ post }: { post: Post }) {
   const router = useRouter();
+  const cover = post.media[0];
 
   const [title, setTitle] = useState(post.title ?? "");
   const [caption, setCaption] = useState(post.caption);
@@ -87,7 +88,7 @@ function EditPostFields({ post }: { post: Post }) {
       return;
     }
 
-    if (post.postType !== "text" && !title.trim()) {
+    if (post.media.length > 0 && !title.trim()) {
       setError("Add a title before saving.");
       return;
     }
@@ -123,21 +124,21 @@ function EditPostFields({ post }: { post: Post }) {
       <ComposerTopBar cancelHref={`/post/${post.id}`} />
 
       <form onSubmit={handleSubmit} className="space-y-5 px-5 pt-4">
-        {post.postType === "video" && post.image ? (
+        {cover?.type === "video" ? (
           // Read-only — media replacement is out of scope for this phase.
           <video
-            src={post.image}
+            src={cover.url}
             controls
             playsInline
             preload="metadata"
             className="aspect-[4/3] w-full rounded-2xl bg-black object-contain"
           />
-        ) : post.postType === "image" && post.image ? (
+        ) : cover ? (
           <DemoPhoto
-            src={post.image}
-            alt={post.imageAlt ?? ""}
+            src={cover.url}
+            alt={getDisplayTitle(post)}
             className="w-full rounded-2xl"
-            style={{ aspectRatio: resolveImageAspectRatio(post.imageAspect) }}
+            style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
           />
         ) : null}
 

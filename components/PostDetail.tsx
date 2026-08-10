@@ -124,6 +124,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
 
   const isSaved = savedPostIds.includes(post.id);
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
+  const cover = post.media[0];
 
   function toggleSaved() {
     if (!post) return;
@@ -198,21 +199,21 @@ export default function PostDetail({ postId }: PostDetailProps) {
         </div>
       ) : null}
 
-      {post.postType === "video" && post.image ? (
+      {cover?.type === "video" ? (
         // Do not autoplay with sound — playback starts only via the native controls.
         <video
-          src={post.image}
+          src={cover.url}
           controls
           playsInline
           preload="metadata"
           className="aspect-[4/3] w-full bg-black object-contain"
         />
-      ) : post.postType === "image" && post.image ? (
+      ) : cover ? (
         <DemoPhoto
-          src={post.image}
-          alt={post.imageAlt ?? ""}
+          src={cover.url}
+          alt={getDisplayTitle(post)}
           className="w-full"
-          style={{ aspectRatio: resolveImageAspectRatio(post.imageAspect) }}
+          style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
         />
       ) : null}
 
@@ -229,7 +230,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
         <h1 className="mt-1.5 text-xl font-black leading-tight text-stone-900">{getDisplayTitle(post)}</h1>
 
         <p
-          className={`mt-3 text-stone-600 ${post.postType === "text" ? "text-base leading-8" : "text-sm leading-6"}`}
+          className={`mt-3 text-stone-600 ${post.media.length === 0 ? "text-base leading-8" : "text-sm leading-6"}`}
         >
           {post.caption}
         </p>

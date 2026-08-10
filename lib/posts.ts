@@ -2,16 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
-import type { Post, PostType } from "@/types/post";
+import type { MediaType, Post, PostMedia } from "@/types/post";
 
-/** snake_case shape of a `posts` row, as returned by Supabase/PostgREST. */
+/** snake_case shape of a `post_media` row, as returned by Supabase/PostgREST. */
+type PostMediaRow = {
+  id: number;
+  media_type: MediaType;
+  url: string;
+  storage_path: string;
+  aspect_ratio: string | null;
+  position: number;
+};
+
+/** snake_case shape of a `posts` row (with nested media), as returned by Supabase/PostgREST. */
 type PostRow = {
   id: number;
   created_at: string;
-  post_type: PostType;
-  image: string | null;
-  image_alt: string | null;
-  image_aspect: string | null;
   title: string | null;
   caption: string;
   tags: string[] | null;
@@ -23,18 +29,34 @@ type PostRow = {
   longitude: number | null;
   location_name: string | null;
   user_id: string | null;
+  post_media: PostMediaRow[] | null;
 };
 
 const POST_COLUMNS =
-  "id, created_at, post_type, image, image_alt, image_aspect, title, caption, tags, author, rating, rating_count, show_on_map, latitude, longitude, location_name, user_id";
+  "id, created_at, title, caption, tags, author, rating, rating_count, show_on_map, latitude, longitude, location_name, user_id, post_media(*)";
 
-function rowToPost(row: PostRow): Post {
+function rowToPostMedia(row: PostMediaRow): PostMedia {
   return {
     id: row.id,
-    postType: row.post_type,
-    image: row.image,
-    imageAlt: row.image_alt,
-    imageAspect: row.image_aspect,
+    type: row.media_type,
+    url: row.url,
+    storagePath: row.storage_path,
+    aspectRatio: row.aspect_ratio,
+    position: row.position,
+  };
+}
+
+function rowToPost(row: PostRow): Post {
+  // Sorted client-side rather than relying on a query-level order modifier for
+  // the embedded resource — just as correct, and doesn't depend on getting an
+  // exact PostgREST/supabase-js embedded-order syntax right for this version.
+  const media = (row.post_media ?? [])
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map(rowToPostMedia);
+
+  return {
+    id: row.id,
     title: row.title,
     caption: row.caption,
     tags: row.tags ?? [],
@@ -47,6 +69,7 @@ function rowToPost(row: PostRow): Post {
     locationName: row.location_name ?? undefined,
     userId: row.user_id ?? undefined,
     createdAt: row.created_at,
+    media,
   };
 }
 
@@ -56,7 +79,7 @@ function warnIfNotConfigured() {
   );
 }
 
-/** Every post in the `posts` table, newest first. */
+/** Every post in the `posts` table, newest first, with ordered media attached. */
 export async function getAllPosts(): Promise<Post[]> {
   if (!isSupabaseConfigured) {
     warnIfNotConfigured();
@@ -96,43 +119,76 @@ export async function getPostById(id: number): Promise<Post | undefined> {
   return data ? rowToPost(data) : undefined;
 }
 
-export async function addPost(input: Omit<Post, "id">): Promise<Post> {
+export type NewPostMediaInput = {
+  type: MediaType;
+  url: string;
+  storagePath: string;
+  aspectRatio: string | null;
+  position: number;
+};
+
+export type NewPostInput = {
+  title: string | null;
+  caption: string;
+  tags: string[];
+  author: string;
+  rating: number;
+  ratingCount: string;
+  showOnMap: boolean;
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+  userId?: string;
+  /** Empty for text posts. media[0] (position 0) is the cover. */
+  media: NewPostMediaInput[];
+};
+
+/**
+ * Creates a post and its media rows in one atomic step via the
+ * create_post_with_media RPC (supabase/post_media.sql) — a plain client-side
+ * insert-into-posts-then-insert-into-post_media would leave a window where a
+ * public, publicly-readable post exists with zero or partial media rows.
+ * Returns the new post's id.
+ */
+export async function addPost(input: NewPostInput): Promise<number> {
   if (!isSupabaseConfigured) {
     throw new Error(
       "Supabase isn't configured — add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local.",
     );
   }
 
-  const { data, error } = await supabase
-    .from("posts")
-    .insert({
-      post_type: input.postType,
-      image: input.image,
-      image_alt: input.imageAlt,
-      image_aspect: input.imageAspect,
+  const { data, error } = await supabase.rpc("create_post_with_media", {
+    post_input: {
       title: input.title,
       caption: input.caption,
       tags: input.tags,
       author: input.author,
       rating: input.rating,
-      rating_count: input.ratingCount,
-      show_on_map: input.showOnMap,
+      ratingCount: input.ratingCount,
+      showOnMap: input.showOnMap,
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
-      location_name: input.locationName ?? null,
-      user_id: input.userId ?? null,
-    })
-    .select(POST_COLUMNS)
-    .single();
+      locationName: input.locationName ?? null,
+      userId: input.userId ?? null,
+    },
+    media_input: input.media.map((item) => ({
+      type: item.type,
+      url: item.url,
+      storagePath: item.storagePath,
+      aspectRatio: item.aspectRatio,
+      position: item.position,
+    })),
+  });
 
-  if (error || !data) {
+  if (error || data == null) {
     throw new Error(error?.message ?? "Failed to create post.");
   }
 
-  return rowToPost(data);
+  return data as number;
 }
 
-/** Deletes a post row only — callers are responsible for any Storage cleanup. */
+/** Deletes a post row only — callers are responsible for any Storage cleanup.
+ *  post_media rows are removed automatically via `on delete cascade`. */
 export async function deletePost(id: number): Promise<void> {
   if (!isSupabaseConfigured) {
     throw new Error(
@@ -161,7 +217,7 @@ export type PostEditableFields = {
   longitude: number | null;
 };
 
-/** Updates only the approved editable fields on a post row — never image/post_type/user_id/etc. */
+/** Updates only the approved editable fields on a post row — never media/user_id/etc. */
 export async function updatePost(id: number, fields: PostEditableFields): Promise<void> {
   if (!isSupabaseConfigured) {
     throw new Error(

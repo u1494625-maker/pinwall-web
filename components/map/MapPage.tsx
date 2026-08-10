@@ -107,9 +107,7 @@ export default function MapPage() {
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
             <PostMapMarker
-              postType={post.postType}
-              image={post.image}
-              imageAlt={post.imageAlt}
+              cover={post.media[0]}
               title={getDisplayTitle(post)}
               highlighted={previewPostIdRef.current === post.id}
             />,
@@ -322,12 +320,12 @@ export default function MapPage() {
           >
             ×
           </button>
-          {previewPost.postType === "video" && previewPost.image ? (
-            <PostVideoTile src={previewPost.image} className="h-20 w-24 shrink-0 rounded-xl" />
-          ) : previewPost.postType === "image" && previewPost.image ? (
+          {previewPost.media[0]?.type === "video" ? (
+            <PostVideoTile src={previewPost.media[0].url} className="h-20 w-24 shrink-0 rounded-xl" />
+          ) : previewPost.media[0] ? (
             <DemoPhoto
-              src={previewPost.image}
-              alt={previewPost.imageAlt ?? ""}
+              src={previewPost.media[0].url}
+              alt={getDisplayTitle(previewPost)}
               className="h-20 w-24 shrink-0 rounded-xl"
             />
           ) : null}

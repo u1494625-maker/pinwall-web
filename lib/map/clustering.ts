@@ -1,11 +1,11 @@
 import type Supercluster from "supercluster";
-import type { Post, PostType } from "@/types/post";
+import type { Post } from "@/types/post";
 import type { MapCluster } from "./types";
 
 export type PostPointProps = {
   postId: number;
-  postType: PostType;
-  image: string | null;
+  /** The post's cover image URL — only ever set when the cover is an image (never video/text). */
+  coverImageUrl: string | undefined;
 };
 
 export type ClusterAccumulatedProps = {
@@ -29,7 +29,7 @@ export async function buildClusterIndex(posts: Post[]): Promise<PostClusterIndex
     maxZoom: 17,
     map: (props): ClusterAccumulatedProps => ({
       postIds: [props.postId],
-      representativeImageUrl: props.postType === "image" && props.image ? props.image : undefined,
+      representativeImageUrl: props.coverImageUrl,
     }),
     reduce: (accumulated, props) => {
       accumulated.postIds = accumulated.postIds.concat(props.postIds);
@@ -44,7 +44,10 @@ export async function buildClusterIndex(posts: Post[]): Promise<PostClusterIndex
   index.load(
     posts.map((post) => ({
       type: "Feature",
-      properties: { postId: post.id, postType: post.postType, image: post.image },
+      properties: {
+        postId: post.id,
+        coverImageUrl: post.media[0]?.type === "image" ? post.media[0].url : undefined,
+      },
       geometry: {
         type: "Point",
         coordinates: [post.longitude as number, post.latitude as number],

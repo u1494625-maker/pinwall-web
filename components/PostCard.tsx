@@ -42,33 +42,25 @@ export function useSavedPostIds() {
 }
 
 function PostCardMedia({ post }: { post: Post }) {
+  const cover = post.media[0];
+
   // Text posts have no real media — showing an artificial placeholder box here
   // would just be dead space; the card stays naturally compact without one.
-  if (post.postType === "text") {
+  if (!cover) {
     return null;
   }
 
-  if (post.postType === "video" && post.image) {
-    return <PostVideoTile src={post.image} className={post.imageAspect ?? "aspect-[4/5]"} />;
+  if (cover.type === "video") {
+    return <PostVideoTile src={cover.url} className="aspect-[4/5]" />;
   }
 
-  if (post.image) {
-    return (
-      <DemoPhoto
-        src={post.image}
-        alt={post.imageAlt ?? ""}
-        className="w-full"
-        style={{ aspectRatio: resolveImageAspectRatio(post.imageAspect) }}
-      />
-    );
-  }
-
-  // Defensive fallback — shouldn't happen, but a post missing the media its type implies
-  // should still render something rather than break the card.
   return (
-    <div className="grid aspect-[4/5] place-items-center bg-stone-100 text-xs font-semibold text-stone-400">
-      No preview available
-    </div>
+    <DemoPhoto
+      src={cover.url}
+      alt={getDisplayTitle(post)}
+      className="w-full"
+      style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
+    />
   );
 }
 

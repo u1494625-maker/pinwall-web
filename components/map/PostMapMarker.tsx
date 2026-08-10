@@ -1,10 +1,9 @@
 import DemoPhoto from "@/components/DemoPhoto";
-import type { PostType } from "@/types/post";
+import type { PostMedia } from "@/types/post";
 
 type PostMapMarkerProps = {
-  postType: PostType;
-  image: string | null;
-  imageAlt: string | null;
+  /** The post's cover media (media[0]) — undefined for text posts. */
+  cover: PostMedia | undefined;
   /** Already resolved (e.g. via getDisplayTitle) — this component doesn't handle a missing title. */
   title: string;
   /** True for the post targeted via "View on Map" (or otherwise the active preview) — a lightweight visual cue only, not a redesign. */
@@ -19,9 +18,7 @@ type PostMapMarkerProps = {
  * still works in static markup since no JS/React is involved in the animation.
  */
 export default function PostMapMarker({
-  postType,
-  image,
-  imageAlt,
+  cover,
   title,
   highlighted = false,
 }: PostMapMarkerProps) {
@@ -36,9 +33,9 @@ export default function PostMapMarker({
             highlighted ? "border-orange-500 ring-2 ring-orange-300" : "border-white"
           }`}
         >
-          {postType === "image" && image ? (
-            <DemoPhoto src={image} alt={imageAlt ?? ""} className="aspect-square w-full" />
-          ) : postType === "video" ? (
+          {cover?.type === "image" ? (
+            <DemoPhoto src={cover.url} alt={title} className="aspect-square w-full" />
+          ) : cover?.type === "video" ? (
             <div className="grid aspect-square w-full place-items-center bg-stone-800 text-base text-white">▶</div>
           ) : (
             <div className="grid aspect-square w-full place-items-center bg-orange-100 text-base text-orange-600">

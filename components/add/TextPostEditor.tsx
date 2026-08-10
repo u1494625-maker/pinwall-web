@@ -47,10 +47,6 @@ export default function TextPostEditor() {
       const trimmedTitle = title.trim();
 
       await addPost({
-        postType: "text",
-        image: null,
-        imageAlt: null,
-        imageAspect: null,
         title: trimmedTitle ? trimmedTitle : null,
         caption: caption.trim(),
         tags,
@@ -61,6 +57,7 @@ export default function TextPostEditor() {
         latitude: showOnMap ? coords?.lat : undefined,
         longitude: showOnMap ? coords?.lng : undefined,
         userId: user.id,
+        media: [],
       });
 
       router.replace("/me");

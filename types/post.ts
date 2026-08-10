@@ -1,13 +1,20 @@
-export type PostType = "image" | "video" | "text";
+export type MediaType = "image" | "video";
+
+export type PostMedia = {
+  id: number;
+  type: MediaType;
+  url: string;
+  /** Storage object path — kept alongside the public URL so deletion never has
+   *  to re-derive it, and so the code has no dependency on Supabase's public
+   *  URL format staying stable. */
+  storagePath: string;
+  aspectRatio: string | null;
+  position: number;
+};
 
 export type Post = {
   id: number;
-  postType: PostType;
-  /** Null for text posts. Holds an image URL for image posts, a video URL for video posts. */
-  image: string | null;
-  imageAlt: string | null;
-  imageAspect: string | null;
-  /** Optional — text posts may be published without one. */
+  /** Optional — text posts, and photo/video posts without one, may omit it. */
   title: string | null;
   caption: string;
   tags: string[];
@@ -20,4 +27,6 @@ export type Post = {
   locationName?: string;
   userId?: string;
   createdAt?: string;
+  /** Ordered by position; media[0] is always the cover. Empty for text posts. */
+  media: PostMedia[];
 };
