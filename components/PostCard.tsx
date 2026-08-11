@@ -41,6 +41,24 @@ export function useSavedPostIds() {
   }, [savedPostsJson]);
 }
 
+/** Purely decorative "multiple photos" glyph — no count, no click behavior. */
+function StackedPhotosIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3"
+    >
+      <rect x="3" y="7" width="14" height="14" rx="2" />
+      <path d="M7 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2" />
+    </svg>
+  );
+}
+
 function PostCardMedia({ post }: { post: Post }) {
   const cover = post.media[0];
 
@@ -55,12 +73,22 @@ function PostCardMedia({ post }: { post: Post }) {
   }
 
   return (
-    <DemoPhoto
-      src={cover.url}
-      alt={getDisplayTitle(post)}
-      className="w-full"
-      style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
-    />
+    <div className="relative">
+      <DemoPhoto
+        src={cover.url}
+        alt={getDisplayTitle(post)}
+        className="w-full"
+        style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
+      />
+      {post.media.length > 1 ? (
+        <span
+          aria-hidden="true"
+          className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-black/60 text-white"
+        >
+          <StackedPhotosIcon />
+        </span>
+      ) : null}
+    </div>
   );
 }
 

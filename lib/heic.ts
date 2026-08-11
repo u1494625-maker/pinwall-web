@@ -1,20 +1,12 @@
-import { MAX_IMAGE_BYTES } from "@/lib/storage";
-
 const HEIC_MIME_TYPES = ["image/heic", "image/heif"];
 const HEIC_EXTENSIONS = [".heic", ".heif"];
 
-/**
- * HEIC source files get their own, more generous ceiling before conversion is
- * even attempted — HEIC's compression means a real iPhone photo can
- * legitimately exceed the 5MB *final upload* limit while still converting
- * down to a compliant JPEG. This only gates the original file; the output is
- * always separately guaranteed to fit MAX_IMAGE_BYTES by convertHeicToJpeg.
- */
-export const MAX_HEIC_SOURCE_BYTES = 15 * 1024 * 1024;
-
-// Descending, bounded retry ladder — never more than 3 encode attempts total,
-// never an unbounded/open-ended compression loop.
-const CONVERSION_QUALITIES = [0.9, 0.7, 0.5];
+// A single, fixed-quality conversion — no size-fitting ladder here anymore.
+// HEIC's job is purely "produce a broadly-displayable JPEG"; final sizing is
+// the unified prepareImageForUpload() pipeline's job (lib/imageOptimization.ts),
+// which runs on this output next. Doing size-targeting in both places would
+// mean compressing twice in sequence for no benefit.
+const CONVERSION_QUALITY = 0.92;
 
 /**
  * iOS/macOS often report HEIC files with an empty or inconsistent MIME type,
@@ -36,25 +28,10 @@ export function isHeicFile(file: File): boolean {
  * Dynamically imported so the WASM decoder is only fetched when a HEIC file
  * is actually selected — matching this codebase's existing pattern for other
  * heavy client-only libraries (see lib/map/clustering.ts, LocationPicker.tsx).
- *
- * Tries decreasing JPEG quality until the output fits under MAX_IMAGE_BYTES,
- * so a high-resolution photo doesn't get rejected just because the first,
- * highest-quality attempt happened to come out too large. Throws a clear,
- * specific error if even the lowest quality still doesn't fit — this is a
- * bounded compression retry, not a general image-processing pipeline.
  */
 export async function convertHeicToJpeg(file: File): Promise<File> {
   const { heicTo } = await import("heic-to");
-
-  for (const quality of CONVERSION_QUALITIES) {
-    const blob = await heicTo({ blob: file, type: "image/jpeg", quality });
-    if (blob.size <= MAX_IMAGE_BYTES) {
-      const name = file.name.replace(/\.(heic|heif)$/i, "") + ".jpg";
-      return new File([blob], name, { type: "image/jpeg" });
-    }
-  }
-
-  throw new Error(
-    `This photo is too large even after compression. Choose a smaller photo (under ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))}MB).`,
-  );
+  const blob = await heicTo({ blob: file, type: "image/jpeg", quality: CONVERSION_QUALITY });
+  const name = file.name.replace(/\.(heic|heif)$/i, "") + ".jpg";
+  return new File([blob], name, { type: "image/jpeg" });
 }

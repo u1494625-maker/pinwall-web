@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import ComposerBottomBar from "@/components/add/ComposerBottomBar";
 import ComposerTopBar from "@/components/add/ComposerTopBar";
 import PostLocationFields from "@/components/add/PostLocationFields";
@@ -9,16 +9,11 @@ import TagChipInput from "@/components/add/TagChipInput";
 import TitleField from "@/components/add/TitleField";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { convertHeicToJpeg, isHeicFile, MAX_HEIC_SOURCE_BYTES } from "@/lib/heic";
+import { convertHeicToJpeg, isHeicFile } from "@/lib/heic";
+import { MAX_IMAGE_SOURCE_BYTES, prepareImageForUpload, type ImageDiagnostics } from "@/lib/imageOptimization";
 import { measureImageAspectRatio } from "@/lib/postDisplay";
-import { addPost } from "@/lib/posts";
-import {
-  ALLOWED_MEDIA_TYPES,
-  MAX_IMAGE_BYTES,
-  MAX_VIDEO_BYTES,
-  deletePostMedia,
-  uploadPostMedia,
-} from "@/lib/storage";
+import { addPost, type NewPostMediaInput } from "@/lib/posts";
+import { ALLOWED_MEDIA_TYPES, MAX_VIDEO_BYTES, deletePostMedia, uploadPostMedia } from "@/lib/storage";
 import type { MediaType } from "@/types/post";
 
 type MediaPostEditorProps = {
@@ -26,8 +21,64 @@ type MediaPostEditorProps = {
   initialSource: "album" | "camera" | null;
 };
 
-function mediaTypeFor(file: File): MediaType {
-  return file.type.startsWith("video/") ? "video" : "image";
+/** A photo post may hold 1–10 photos. Trivially adjustable later. */
+const MAX_PHOTO_ITEMS = 10;
+/** A video post holds exactly one video — never mixed with photos, never more than one. */
+const MAX_VIDEO_ITEMS = 1;
+
+/** A locally-selected, not-yet-uploaded media item. Distinct from the persisted `PostMedia`. */
+type DraftMediaItem = {
+  key: string;
+  file: File;
+  /** The filename as originally selected, before any HEIC→JPEG conversion — kept for diagnostics. */
+  originalName: string;
+  previewUrl: string;
+  type: MediaType;
+  /** Set for every image item (undefined for video) — see lib/imageOptimization.ts. */
+  imageDiagnostics?: ImageDiagnostics;
+};
+
+/**
+ * A post's media "mode" is never stored — it's derived from whatever's
+ * already selected, exactly like `post_type` is derived from `media` on the
+ * read side. Removing every item naturally returns this to neutral (`null`)
+ * on the next computation; no reset code needed.
+ */
+type MediaMode = "photo" | "video" | null;
+
+function modeFor(items: DraftMediaItem[]): MediaMode {
+  return items.length === 0 ? null : items[0].type === "video" ? "video" : "photo";
+}
+
+/**
+ * Wraps uploadPostMedia with a diagnostic console line identifying exactly
+ * which selected file failed and why (original filename, whether it went
+ * through HEIC conversion, mime type, size) — the thrown error itself already
+ * names the file/size for the user; this is the extra detail useful for
+ * correlating a real-device report against the console.
+ */
+async function uploadWithDiagnostics(item: DraftMediaItem, userId: string, draftId: string) {
+  try {
+    return await uploadPostMedia(item.file, userId, draftId);
+  } catch (uploadErr) {
+    console.error("Media upload failed:", {
+      originalName: item.originalName,
+      originalMimeType: item.imageDiagnostics?.originalMimeType ?? item.file.type,
+      originalSizeBytes: item.imageDiagnostics?.originalSizeBytes ?? item.file.size,
+      originalWidth: item.imageDiagnostics?.originalWidth,
+      originalHeight: item.imageDiagnostics?.originalHeight,
+      optimizedMimeType: item.file.type,
+      optimizedSizeBytes: item.file.size,
+      optimizedWidth: item.imageDiagnostics?.optimizedWidth,
+      optimizedHeight: item.imageDiagnostics?.optimizedHeight,
+      wasHeicConverted: item.imageDiagnostics?.wasHeicConverted ?? false,
+      wasResized: item.imageDiagnostics?.wasResized ?? false,
+      compressionApplied: item.imageDiagnostics?.compressionApplied ?? false,
+      mediaType: item.type,
+      draftId,
+    });
+    throw uploadErr;
+  }
 }
 
 /** Shared by both the "Choose from album" and "Camera" entries in the Add action sheet. */
@@ -36,10 +87,10 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasAutoOpenedRef = useRef(false);
+  const mediaItemsRef = useRef<DraftMediaItem[]>([]);
 
   const [title, setTitle] = useState("");
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
-  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [mediaItems, setMediaItems] = useState<DraftMediaItem[]>([]);
   const [caption, setCaption] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [showOnMap, setShowOnMap] = useState(false);
@@ -48,11 +99,25 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConvertingHeic, setIsConvertingHeic] = useState(false);
 
-  // Revokes the previous object URL whenever it's replaced or the editor unmounts.
+  const mode = modeFor(mediaItems);
+
+  // Keeps the latest media items available to the unmount-only cleanup effect
+  // below without making that effect depend on (and re-run per) every change.
   useEffect(() => {
-    if (!mediaPreviewUrl) return;
-    return () => URL.revokeObjectURL(mediaPreviewUrl);
-  }, [mediaPreviewUrl]);
+    mediaItemsRef.current = mediaItems;
+  }, [mediaItems]);
+
+  // Revokes every object URL still outstanding when the editor unmounts.
+  // Removing an item revokes its own URL immediately (see handleRemoveMedia),
+  // so by the time this runs it only ever sees URLs that weren't already
+  // revoked — no double-revoke.
+  useEffect(() => {
+    return () => {
+      for (const item of mediaItemsRef.current) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
+    };
+  }, []);
 
   // Auto-open the picker once on arrival, matching how the user got here from
   // the action sheet — doesn't request camera permission itself; the browser's
@@ -66,52 +131,155 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   }, [initialSource]);
 
   async function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = ""; // allow re-selecting the same file later
-    if (!file) return; // user canceled the picker — leave the editor as it was
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = ""; // allow re-selecting the same file(s) later
+    if (files.length === 0) return; // user canceled the picker — leave the editor as it was
 
     setError(null);
 
-    const isVideo = file.type.startsWith("video/");
-    const isHeicSource = !isVideo && isHeicFile(file);
+    // Recomputed per-batch, then locked in the moment the batch's first valid
+    // item is accepted (not merely attempted) — see modeFor's doc comment.
+    let currentMode = mode;
+    let queuedPhotoCount = mode === "photo" ? mediaItems.length : 0;
+    let queuedVideoCount = mode === "video" ? 1 : 0;
+    const newItems: DraftMediaItem[] = [];
+    let modeConflictMessage: string | null = null;
+    let overflowCount = 0;
+    let rejectedCount = 0;
+    let processingFailedCount = 0;
 
-    if (!isHeicSource && !ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
-      setError(
-        "Unsupported file type. Use a JPEG, PNG, WEBP, GIF, AVIF, or HEIC/HEIF photo, or an MP4, WEBM, or MOV video.",
-      );
-      return;
-    }
+    for (const file of files) {
+      const isVideo = file.type.startsWith("video/");
+      const candidateType: MediaType = isVideo ? "video" : "image";
 
-    // HEIC gets its own, more generous ceiling here — its compression means a
-    // real iPhone photo can legitimately exceed the final 5MB upload limit
-    // while still converting down to a compliant JPEG below.
-    const maxSourceBytes = isHeicSource ? MAX_HEIC_SOURCE_BYTES : isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-    if (file.size > maxSourceBytes) {
-      setError(`That file is too large. Choose one under ${Math.round(maxSourceBytes / (1024 * 1024))}MB.`);
-      return;
-    }
-
-    let fileToUse = file;
-
-    if (isHeicSource) {
-      setIsConvertingHeic(true);
-      try {
-        fileToUse = await convertHeicToJpeg(file);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't convert this HEIC photo. Try a JPEG or PNG instead.");
-        setIsConvertingHeic(false);
-        return;
+      // Product-rule (mode) check first — before wasting HEIC/size work on a
+      // file that can't be accepted regardless of its own validity. Both
+      // directions of "wrong type for the locked mode" are rejected the same
+      // way as "this type's slot is already full" — a video post's single
+      // slot (MAX_VIDEO_ITEMS) filled is indistinguishable from "no photos
+      // allowed here" from the user's point of view.
+      if (currentMode === "photo" && candidateType === "video") {
+        modeConflictMessage ??= "Photo posts can contain photos only.";
+        continue;
       }
-      setIsConvertingHeic(false);
+      if (currentMode === "video" && candidateType === "image") {
+        modeConflictMessage ??= "Video posts can contain only one video.";
+        continue;
+      }
+      if (candidateType === "video" && queuedVideoCount >= MAX_VIDEO_ITEMS) {
+        modeConflictMessage ??= "Video posts can contain only one video.";
+        continue;
+      }
+      if (candidateType === "image" && queuedPhotoCount >= MAX_PHOTO_ITEMS) {
+        overflowCount += 1;
+        continue;
+      }
+
+      const isHeicSource = !isVideo && isHeicFile(file);
+
+      if (!isHeicSource && !ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
+        rejectedCount += 1;
+        continue;
+      }
+
+      // Images (HEIC included) share one unified source-safety ceiling — a
+      // guard against absurd files/memory use, not a quality target. See
+      // lib/imageOptimization.ts for the optimization target and dimension
+      // cap that do the actual size-shaping work. Video keeps its own,
+      // unrelated ceiling.
+      const maxSourceBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_SOURCE_BYTES;
+      if (file.size > maxSourceBytes) {
+        rejectedCount += 1;
+        continue;
+      }
+
+      let fileToUse = file;
+      let imageDiagnostics: ImageDiagnostics | undefined;
+
+      if (isHeicSource) {
+        setIsConvertingHeic(true);
+        try {
+          fileToUse = await convertHeicToJpeg(file);
+        } catch {
+          rejectedCount += 1;
+          setIsConvertingHeic(false);
+          continue;
+        }
+        setIsConvertingHeic(false);
+      }
+
+      if (!isVideo) {
+        try {
+          const prepared = await prepareImageForUpload(fileToUse, isHeicSource);
+          fileToUse = prepared.file;
+          imageDiagnostics = prepared.diagnostics;
+        } catch {
+          processingFailedCount += 1;
+          continue;
+        }
+      }
+
+      newItems.push({
+        key: crypto.randomUUID(),
+        file: fileToUse,
+        originalName: file.name,
+        previewUrl: URL.createObjectURL(fileToUse),
+        type: candidateType,
+        imageDiagnostics,
+      });
+
+      if (candidateType === "video") {
+        queuedVideoCount += 1;
+        currentMode = "video";
+      } else {
+        queuedPhotoCount += 1;
+        currentMode ??= "photo";
+      }
     }
 
-    setMediaFile(fileToUse);
-    setMediaPreviewUrl(URL.createObjectURL(fileToUse));
+    if (newItems.length > 0) {
+      setMediaItems((prev) => [...prev, ...newItems]);
+    }
+
+    const messages: string[] = [];
+    if (modeConflictMessage) messages.push(modeConflictMessage);
+    if (overflowCount > 0) {
+      messages.push(
+        `You can add up to ${MAX_PHOTO_ITEMS} photos per post — ${overflowCount} file${overflowCount === 1 ? " was" : "s were"} not added.`,
+      );
+    }
+    if (rejectedCount > 0) {
+      messages.push(
+        `${rejectedCount} file${rejectedCount === 1 ? " couldn't" : "s couldn't"} be added — check file type and size (JPEG/PNG/WEBP/AVIF/HEIC photos, MP4/WEBM/MOV videos).`,
+      );
+    }
+    if (processingFailedCount > 0) {
+      messages.push(
+        `${processingFailedCount} photo${processingFailedCount === 1 ? " couldn't" : "s couldn't"} be processed.`,
+      );
+    }
+    if (messages.length > 0) setError(messages.join(" "));
   }
 
-  function handleRemoveMedia() {
-    setMediaFile(null);
-    setMediaPreviewUrl(null);
+  function handleRemoveMedia(key: string) {
+    setMediaItems((prev) => {
+      const item = prev.find((i) => i.key === key);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((i) => i.key !== key);
+    });
+  }
+
+  function handleMoveMedia(key: string, direction: -1 | 1) {
+    setMediaItems((prev) => {
+      const index = prev.findIndex((i) => i.key === key);
+      if (index === -1) return prev;
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+
+      const next = prev.slice();
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -127,8 +295,8 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       return;
     }
 
-    if (!mediaFile) {
-      setError("Choose a photo or video before publishing.");
+    if (mediaItems.length === 0) {
+      setError("Choose at least one photo or video before publishing.");
       return;
     }
 
@@ -139,21 +307,33 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
 
     setIsSubmitting(true);
 
-    let uploadedPath: string | null = null;
+    // One draft id per publish attempt, groups this post's media under a
+    // single Storage folder — see uploadPostMedia.
+    const draftId = crypto.randomUUID();
+    const uploadedPaths: string[] = [];
 
     try {
-      const mediaType = mediaTypeFor(mediaFile);
-      // Measured synchronously here (not pre-fetched at selection time) so an
-      // image post can never publish with a guessed/default aspect ratio just
-      // because measurement hadn't finished yet — it either has the real
-      // ratio by the time this resolves, or publishing fails with a real error.
-      const aspectRatio = mediaType === "video" ? "4/5" : await measureImageAspectRatio(mediaPreviewUrl!);
+      const media: NewPostMediaInput[] = [];
 
-      // One draft id per publish attempt, groups this post's media (just one
-      // item for now) under a single Storage folder — see uploadPostMedia.
-      const draftId = crypto.randomUUID();
-      const { url, path } = await uploadPostMedia(mediaFile, user.id, draftId);
-      uploadedPath = path;
+      // Sequential, not parallel: with a small max item count, this keeps
+      // rollback bookkeeping trivial — uploadedPaths always reflects exactly
+      // what succeeded so far the instant anything fails.
+      for (let index = 0; index < mediaItems.length; index += 1) {
+        const item = mediaItems[index];
+        // Images already know their real (post-optimization) dimensions from
+        // the pipeline — no need to re-decode via measureImageAspectRatio.
+        // That helper is kept only as a defensive fallback for the
+        // unexpected case imageDiagnostics is somehow missing.
+        const aspectRatio =
+          item.type === "video"
+            ? "4/5"
+            : item.imageDiagnostics
+              ? `${item.imageDiagnostics.optimizedWidth}/${item.imageDiagnostics.optimizedHeight}`
+              : await measureImageAspectRatio(item.previewUrl);
+        const { url, path } = await uploadWithDiagnostics(item, user.id, draftId);
+        uploadedPaths.push(path);
+        media.push({ type: item.type, url, storagePath: path, aspectRatio, position: index });
+      }
 
       const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
 
@@ -168,17 +348,23 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         latitude: showOnMap ? coords?.lat : undefined,
         longitude: showOnMap ? coords?.lng : undefined,
         userId: user.id,
-        media: [{ type: mediaType, url, storagePath: path, aspectRatio, position: 0 }],
+        media,
       });
 
       router.replace("/me");
     } catch (err) {
-      if (uploadedPath) {
-        try {
-          await deletePostMedia(uploadedPath);
-        } catch {
+      if (uploadedPaths.length > 0) {
+        const failedCleanupPaths: string[] = [];
+        for (const path of uploadedPaths) {
+          try {
+            await deletePostMedia(path);
+          } catch {
+            failedCleanupPaths.push(path);
+          }
+        }
+        if (failedCleanupPaths.length > 0) {
           setError(
-            "Publishing failed, and the uploaded file couldn't be cleaned up automatically. Please try again or contact support if this keeps happening.",
+            "Publishing failed, and some uploaded files couldn't be cleaned up automatically. Please try again or contact support if this keeps happening.",
           );
           setIsSubmitting(false);
           return;
@@ -189,7 +375,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     }
   }
 
-  const isVideoPreview = mediaFile?.type.startsWith("video/") ?? false;
+  const showAddMoreTile = mode !== "video" && mediaItems.length < MAX_PHOTO_ITEMS;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
@@ -201,51 +387,109 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
             ref={fileInputRef}
             id="media"
             type="file"
+            multiple
             accept={`${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif`}
             capture={initialSource === "camera" ? "environment" : undefined}
             onChange={handleMediaChange}
             className="hidden"
           />
 
-          {isConvertingHeic ? (
-            <div
-              aria-live="polite"
-              className="grid size-24 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-center text-[10px] font-semibold text-stone-400"
-            >
-              Converting…
-            </div>
-          ) : mediaPreviewUrl ? (
-            <div className="relative size-24">
+          {mediaItems.length === 0 ? (
+            isConvertingHeic ? (
+              <div
+                aria-live="polite"
+                className="grid size-24 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-center text-[10px] font-semibold text-stone-400"
+              >
+                Converting…
+              </div>
+            ) : (
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                aria-label="Replace media"
-                className="block size-24 overflow-hidden rounded-2xl"
+                aria-label="Add a photo or video"
+                className="grid size-24 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-2xl text-stone-400"
               >
-                {isVideoPreview ? (
-                  <video src={mediaPreviewUrl} muted playsInline className="size-full object-cover" />
-                ) : (
-                  <DemoPhoto src={mediaPreviewUrl} alt="Media preview" className="size-full" />
-                )}
+                +
               </button>
-              <button
-                type="button"
-                onClick={handleRemoveMedia}
-                aria-label="Remove media"
-                className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-stone-900 text-[10px] text-white"
-              >
-                ×
-              </button>
-            </div>
+            )
           ) : (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Add a photo or video"
-              className="grid size-24 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-2xl text-stone-400"
-            >
-              +
-            </button>
+            <>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {mediaItems.map((item, index) => (
+                  <div key={item.key} className="relative size-24 shrink-0">
+                    <div className="size-24 overflow-hidden rounded-2xl">
+                      {item.type === "video" ? (
+                        <video src={item.previewUrl} muted playsInline className="size-full object-cover" />
+                      ) : (
+                        <DemoPhoto src={item.previewUrl} alt={`Media ${index + 1}`} className="size-full" />
+                      )}
+                    </div>
+
+                    {index === 0 ? (
+                      <span className="absolute left-1 top-1 rounded-full bg-stone-900/80 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                        Cover
+                      </span>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMedia(item.key)}
+                      aria-label="Remove media"
+                      className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-stone-900 text-[10px] text-white"
+                    >
+                      ×
+                    </button>
+
+                    <div className="absolute inset-x-1 bottom-1 flex justify-between">
+                      <button
+                        type="button"
+                        onClick={() => handleMoveMedia(item.key, -1)}
+                        disabled={index === 0}
+                        aria-label="Move left"
+                        className="grid size-5 place-items-center rounded-full bg-white/90 text-[10px] font-bold text-stone-700 shadow disabled:invisible"
+                      >
+                        ‹
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveMedia(item.key, 1)}
+                        disabled={index === mediaItems.length - 1}
+                        aria-label="Move right"
+                        className="grid size-5 place-items-center rounded-full bg-white/90 text-[10px] font-bold text-stone-700 shadow disabled:invisible"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {showAddMoreTile ? (
+                  isConvertingHeic ? (
+                    <div
+                      aria-live="polite"
+                      className="grid size-24 shrink-0 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-center text-[10px] font-semibold text-stone-400"
+                    >
+                      Converting…
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      aria-label="Add more media"
+                      className="grid size-24 shrink-0 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-2xl text-stone-400"
+                    >
+                      +
+                    </button>
+                  )
+                ) : null}
+              </div>
+
+              {mode === "video" ? (
+                <p className="mt-1.5 text-[11px] text-stone-400">
+                  Remove the current video before adding photos.
+                </p>
+              ) : null}
+            </>
           )}
         </div>
 

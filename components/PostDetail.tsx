@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import DemoPhoto from "@/components/DemoPhoto";
 import { useSavedPostIds } from "@/components/PostCard";
+import PostMediaGallery from "@/components/PostMediaGallery";
 import PostManageSheet from "@/components/post/PostManageSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { hasValidMapLocation } from "@/lib/map/viewport";
-import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
+import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPostsState } from "@/lib/posts";
 
 type PostDetailProps = {
@@ -124,7 +124,6 @@ export default function PostDetail({ postId }: PostDetailProps) {
 
   const isSaved = savedPostIds.includes(post.id);
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
-  const cover = post.media[0];
 
   function toggleSaved() {
     if (!post) return;
@@ -199,23 +198,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
         </div>
       ) : null}
 
-      {cover?.type === "video" ? (
-        // Do not autoplay with sound — playback starts only via the native controls.
-        <video
-          src={cover.url}
-          controls
-          playsInline
-          preload="metadata"
-          className="aspect-[4/3] w-full bg-black object-contain"
-        />
-      ) : cover ? (
-        <DemoPhoto
-          src={cover.url}
-          alt={getDisplayTitle(post)}
-          className="w-full"
-          style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
-        />
-      ) : null}
+      <PostMediaGallery media={post.media} title={getDisplayTitle(post)} />
 
       <div className="px-5 pt-5">
         {hasValidMapLocation(post) ? (
