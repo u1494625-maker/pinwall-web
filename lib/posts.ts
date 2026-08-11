@@ -70,6 +70,13 @@ function rowToPost(row: PostRow): Post {
     userId: row.user_id ?? undefined,
     createdAt: row.created_at,
     media,
+    // Overwritten by attachEngagement() right after fetch — these defaults
+    // only matter if that call fails, in which case zero/false is the
+    // correct, honest fallback (never a guessed or fake number).
+    likeCount: 0,
+    saveCount: 0,
+    viewerHasLiked: false,
+    viewerHasSaved: false,
   };
 }
 
@@ -79,7 +86,53 @@ function warnIfNotConfigured() {
   );
 }
 
-/** Every post in the `posts` table, newest first, with ordered media attached. */
+/** snake_case shape of a get_post_engagement row. */
+type PostEngagementRow = {
+  post_id: number;
+  like_count: number;
+  save_count: number;
+  viewer_has_liked: boolean;
+  viewer_has_saved: boolean;
+};
+
+/**
+ * Attaches real likeCount/saveCount/viewerHasLiked/viewerHasSaved to an
+ * already-fetched batch of posts via ONE additional RPC call keyed on their
+ * ids — never one call per post (no N+1), and never a raw liker/saver ID
+ * list shipped to the client (see supabase/interactions.sql's
+ * get_post_engagement for why this is a separate RPC rather than embedded
+ * directly in the posts query).
+ */
+async function attachEngagement(posts: Post[]): Promise<Post[]> {
+  if (posts.length === 0) return posts;
+
+  const { data, error } = await supabase.rpc("get_post_engagement", {
+    post_ids: posts.map((post) => post.id),
+  });
+
+  if (error || !data) {
+    console.error("Failed to load post engagement from Supabase:", error?.message);
+    return posts;
+  }
+
+  const engagementByPostId = new Map<number, PostEngagementRow>(
+    (data as PostEngagementRow[]).map((row) => [row.post_id, row]),
+  );
+
+  return posts.map((post) => {
+    const engagement = engagementByPostId.get(post.id);
+    if (!engagement) return post;
+    return {
+      ...post,
+      likeCount: engagement.like_count,
+      saveCount: engagement.save_count,
+      viewerHasLiked: engagement.viewer_has_liked,
+      viewerHasSaved: engagement.viewer_has_saved,
+    };
+  });
+}
+
+/** Every post in the `posts` table, newest first, with ordered media and real engagement attached. */
 export async function getAllPosts(): Promise<Post[]> {
   if (!isSupabaseConfigured) {
     warnIfNotConfigured();
@@ -96,7 +149,35 @@ export async function getAllPosts(): Promise<Post[]> {
     return [];
   }
 
-  return (data ?? []).map(rowToPost);
+  return attachEngagement((data ?? []).map(rowToPost));
+}
+
+/**
+ * Posts authored by any of the given user IDs, newest first — used by the
+ * Home "Following" feed. Returns [] immediately, with no query at all, when
+ * `userIds` is empty (following nobody) rather than relying on how `.in()`
+ * with an empty array behaves across client versions.
+ */
+export async function getPostsByUserIds(userIds: string[]): Promise<Post[]> {
+  if (userIds.length === 0) return [];
+
+  if (!isSupabaseConfigured) {
+    warnIfNotConfigured();
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select(POST_COLUMNS)
+    .in("user_id", userIds)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to load posts from Supabase:", error.message);
+    return [];
+  }
+
+  return attachEngagement((data ?? []).map(rowToPost));
 }
 
 export async function getPostById(id: number): Promise<Post | undefined> {
@@ -116,7 +197,10 @@ export async function getPostById(id: number): Promise<Post | undefined> {
     return undefined;
   }
 
-  return data ? rowToPost(data) : undefined;
+  if (!data) return undefined;
+
+  const [post] = await attachEngagement([rowToPost(data)]);
+  return post;
 }
 
 export type NewPostMediaInput = {

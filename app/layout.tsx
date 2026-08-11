@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "PinWall — Campus spots worth saving",
-  description: "Discover cafés, food, study spots, and activities near campus.",
+  description: "Social enough to share. Useful enough to search.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -1,45 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useSyncExternalStore } from "react";
 import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import type { Post } from "@/types/post";
 import DemoPhoto from "./DemoPhoto";
 import PostVideoTile from "./PostVideoTile";
-
-function getSavedPostsSnapshot() {
-  return localStorage.getItem("pinwall_saved") ?? "[]";
-}
-
-function getServerSnapshot() {
-  return "[]";
-}
-
-function subscribeToSavedPosts(onStoreChange: () => void) {
-  window.addEventListener("storage", onStoreChange);
-  window.addEventListener("pinwall-saved-change", onStoreChange);
-
-  return () => {
-    window.removeEventListener("storage", onStoreChange);
-    window.removeEventListener("pinwall-saved-change", onStoreChange);
-  };
-}
-
-export function useSavedPostIds() {
-  const savedPostsJson = useSyncExternalStore(
-    subscribeToSavedPosts,
-    getSavedPostsSnapshot,
-    getServerSnapshot,
-  );
-
-  return useMemo<number[]>(() => {
-    try {
-      return JSON.parse(savedPostsJson);
-    } catch {
-      return [];
-    }
-  }, [savedPostsJson]);
-}
 
 /** Purely decorative "multiple photos" glyph — no count, no click behavior. */
 function StackedPhotosIcon() {

@@ -1,11 +1,11 @@
 "use client";
 
 import MasonryFeed from "@/components/MasonryFeed";
-import { useSavedPostIds } from "@/components/PostCard";
+import { useSavedPostIds } from "@/lib/interactions";
 import { useAllPosts } from "@/lib/posts";
 
 export default function SavedPage() {
-  const savedPostIds = useSavedPostIds();
+  const { ids: savedPostIds } = useSavedPostIds();
   const posts = useAllPosts();
   const savedPosts = posts.filter((post) => savedPostIds.includes(post.id));
 

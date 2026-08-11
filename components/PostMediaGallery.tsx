@@ -22,8 +22,7 @@ const TAP_MAX_MOVEMENT_PX = 12;
  * coordinates — no preventDefault, no gesture library, native scrolling is
  * completely unaffected. Exported so PostFullscreenGallery can reuse it for
  * its own tap-to-close, matching this codebase's existing pattern of
- * exporting a small shared hook alongside its main component (see
- * useSavedPostIds in PostCard.tsx).
+ * exporting a small shared hook alongside its main component.
  */
 export function usePointerTap(onTap: () => void) {
   const startRef = useRef<{ x: number; y: number } | null>(null);

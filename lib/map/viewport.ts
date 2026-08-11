@@ -70,10 +70,11 @@ function subscribeToMapViewport(onStoreChange: () => void) {
 
 /**
  * Reactive read of the saved Map viewport, sourced from sessionStorage via
- * useSyncExternalStore — the same pattern PostCard's useSavedPostIds() uses for
- * localStorage. Keeping the raw string as the snapshot (rather than the parsed
- * object) avoids returning a new object reference on every render, which would
- * otherwise make useSyncExternalStore think the store changes on every read.
+ * useSyncExternalStore — the same pattern PinWallHome's useHomeTab() uses for
+ * its own sessionStorage-backed tab state. Keeping the raw string as the
+ * snapshot (rather than the parsed object) avoids returning a new object
+ * reference on every render, which would otherwise make useSyncExternalStore
+ * think the store changes on every read.
  */
 export function useSavedMapViewport(): MapViewport | null {
   const raw = useSyncExternalStore(

@@ -1,20 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import RequireAuth from "@/components/auth/RequireAuth";
 import DemoPhoto from "@/components/DemoPhoto";
-import PostCard, { useSavedPostIds } from "@/components/PostCard";
+import PostCard from "@/components/PostCard";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { getProfileStats, useLikedPostIds, useSavedPostIds, type ProfileStats } from "@/lib/interactions";
 import { useAllPosts } from "@/lib/posts";
 
-const profileTabs = ["Posts", "Saved"] as const;
+const profileTabs = ["Posts", "Saved", "Liked"] as const;
 type ProfileTab = (typeof profileTabs)[number];
+
+const EMPTY_STATS: ProfileStats = { followingCount: 0, followersCount: 0, likesAndSavesCount: 0 };
 
 function MeContent() {
   const { user, signOut } = useAuth();
   const posts = useAllPosts();
-  const savedPostIds = useSavedPostIds();
+  const { ids: savedPostIds } = useSavedPostIds();
+  const { ids: likedPostIds } = useLikedPostIds();
   const [activeTab, setActiveTab] = useState<ProfileTab>("Posts");
+  const [stats, setStats] = useState<ProfileStats>(EMPTY_STATS);
+
+  useEffect(() => {
+    if (!user) return;
+    const userId = user.id;
+    let cancelled = false;
+    getProfileStats(userId).then((result) => {
+      if (!cancelled) setStats(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const displayedStats = user ? stats : EMPTY_STATS;
 
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
   const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? "You";
@@ -22,7 +41,10 @@ function MeContent() {
 
   const myPosts = user ? posts.filter((post) => post.userId === user.id) : [];
   const savedPosts = posts.filter((post) => savedPostIds.includes(post.id));
-  const gridPosts = activeTab === "Posts" ? myPosts : savedPosts;
+  const likedPosts = posts.filter((post) => likedPostIds.includes(post.id));
+  const gridPosts = activeTab === "Posts" ? myPosts : activeTab === "Saved" ? savedPosts : likedPosts;
+  const emptyCopy =
+    activeTab === "Posts" ? "No posts yet." : activeTab === "Saved" ? "No saved posts yet." : "No liked posts yet.";
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] shadow-[0_0_50px_rgba(50,40,30,0.08)]">
@@ -76,6 +98,21 @@ function MeContent() {
       </div>
 
       <div className="relative rounded-t-3xl bg-[#fbfaf7] pb-28 pt-11">
+        <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{displayedStats.followingCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Following</p>
+          </div>
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{displayedStats.followersCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Followers</p>
+          </div>
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{displayedStats.likesAndSavesCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Likes &amp; Saves</p>
+          </div>
+        </div>
+
         <div className="flex border-b border-stone-100 px-1">
           {profileTabs.map((tab) => {
             const isActive = tab === activeTab;
@@ -105,9 +142,7 @@ function MeContent() {
             </div>
           ) : (
             <div className="py-16 text-center">
-              <p className="text-sm text-stone-400">
-                {activeTab === "Posts" ? "No posts yet." : "No saved posts yet."}
-              </p>
+              <p className="text-sm text-stone-400">{emptyCopy}</p>
             </div>
           )}
         </div>

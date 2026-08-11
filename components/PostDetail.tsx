@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { useSavedPostIds } from "@/components/PostCard";
 import PostMediaGallery from "@/components/PostMediaGallery";
 import PostManageSheet from "@/components/post/PostManageSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPostsState } from "@/lib/posts";
@@ -47,6 +47,7 @@ function ShareIcon() {
   );
 }
 
+/** Outlined circle with three dots — Comment. */
 function CommentIcon() {
   return (
     <svg
@@ -58,7 +59,44 @@ function CommentIcon() {
       strokeLinejoin="round"
       className="size-5"
     >
-      <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1Z" />
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Outlined heart — Like. `filled` swaps to a solid fill for the liked state. */
+function LikeIcon({ filled = false }: { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5"
+    >
+      <path d="M12 21s-6.5-4.35-9.5-8.3C.5 9.5 1.8 5.5 5.5 5c2-.27 3.5.9 4.5 2.3C11 5.9 12.5 4.73 14.5 5c3.7.5 5 4.5 3 7.7C18.5 16.65 12 21 12 21Z" />
+    </svg>
+  );
+}
+
+/** Outlined star — Save. `filled` swaps to a solid fill for the saved state. */
+function SaveIcon({ filled = false }: { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5"
+    >
+      <path d="M12 2.5l2.9 6.26 6.9.74-5.2 4.53 1.5 6.97L12 17.27l-6.1 3.73 1.5-6.97-5.2-4.53 6.9-.74L12 2.5Z" />
     </svg>
   );
 }
@@ -95,16 +133,22 @@ function PostDetailSkeleton() {
 
 export default function PostDetail({ postId }: PostDetailProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, signInWithGoogle } = useAuth();
   const { posts, loading } = useAllPostsState();
   const post = posts.find((candidate) => candidate.id === postId);
-  const savedPostIds = useSavedPostIds();
+  const { isFollowing: isFollowingFromQuery } = useIsFollowing(post?.userId);
   const commentsSectionRef = useRef<HTMLDivElement>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [manageSheetOpen, setManageSheetOpen] = useState(false);
   // Bumped only when opening, so PostManageSheet remounts with fresh internal state each
   // time — it stays mounted (same key) through its own close animation when closing.
   const [manageSheetKey, setManageSheetKey] = useState(0);
+  // Optimistic overrides — null means "no local action yet this session, trust
+  // the fetched post/query value." Like, Save, and Follow each get their own
+  // independent override; none of them share state with each other.
+  const [likeOverride, setLikeOverride] = useState<{ liked: boolean; count: number } | null>(null);
+  const [saveOverride, setSaveOverride] = useState<{ saved: boolean; count: number } | null>(null);
+  const [followOverride, setFollowOverride] = useState<boolean | null>(null);
 
   if (loading) {
     return <PostDetailSkeleton />;
@@ -122,16 +166,61 @@ export default function PostDetail({ postId }: PostDetailProps) {
     );
   }
 
-  const isSaved = savedPostIds.includes(post.id);
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
+  const isLiked = likeOverride?.liked ?? post.viewerHasLiked;
+  const likeCount = likeOverride?.count ?? post.likeCount;
+  const isSaved = saveOverride?.saved ?? post.viewerHasSaved;
+  const saveCount = saveOverride?.count ?? post.saveCount;
+  const isFollowing = followOverride ?? isFollowingFromQuery;
 
-  function toggleSaved() {
+  async function handleToggleLike() {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
     if (!post) return;
-    const nextSavedPostIds = isSaved
-      ? savedPostIds.filter((id) => id !== post.id)
-      : [...savedPostIds, post.id];
-    localStorage.setItem("pinwall_saved", JSON.stringify(nextSavedPostIds));
-    window.dispatchEvent(new Event("pinwall-saved-change"));
+    const wasLiked = isLiked;
+    const previousCount = likeCount;
+    setLikeOverride({ liked: !wasLiked, count: previousCount + (wasLiked ? -1 : 1) });
+    try {
+      if (wasLiked) await unlikePost(post.id, user.id);
+      else await likePost(post.id, user.id);
+    } catch {
+      setLikeOverride({ liked: wasLiked, count: previousCount });
+    }
+  }
+
+  async function handleToggleSave() {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
+    if (!post) return;
+    const wasSaved = isSaved;
+    const previousCount = saveCount;
+    setSaveOverride({ saved: !wasSaved, count: previousCount + (wasSaved ? -1 : 1) });
+    try {
+      if (wasSaved) await unsavePost(post.id, user.id);
+      else await savePost(post.id, user.id);
+    } catch {
+      setSaveOverride({ saved: wasSaved, count: previousCount });
+    }
+  }
+
+  async function handleToggleFollow() {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
+    if (!post?.userId) return;
+    const wasFollowing = isFollowing;
+    setFollowOverride(!wasFollowing);
+    try {
+      if (wasFollowing) await unfollowUser(user.id, post.userId);
+      else await followUser(user.id, post.userId);
+    } catch {
+      setFollowOverride(wasFollowing);
+    }
   }
 
   function scrollToComments() {
@@ -179,6 +268,20 @@ export default function PostDetail({ postId }: PostDetailProps) {
           <p className="truncate text-sm font-bold text-stone-900">{post.author}</p>
           {post.createdAt ? <p className="text-[11px] text-stone-400">{formatRelativeDate(post.createdAt)}</p> : null}
         </div>
+
+        {!isOwner ? (
+          <button
+            type="button"
+            onClick={handleToggleFollow}
+            aria-pressed={isFollowing}
+            aria-label={isFollowing ? "Unfollow" : "Follow"}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${
+              isFollowing ? "bg-stone-100 text-stone-500" : "bg-stone-900 text-white"
+            }`}
+          >
+            {isFollowing ? "Following" : "Follow"}
+          </button>
+        ) : null}
 
         <button
           type="button"
@@ -251,19 +354,6 @@ export default function PostDetail({ postId }: PostDetailProps) {
           </div>
         </div>
 
-        {isOwner ? (
-          <button
-            type="button"
-            onClick={() => {
-              setManageSheetKey((key) => key + 1);
-              setManageSheetOpen(true);
-            }}
-            className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-stone-400"
-          >
-            <MoreIcon />
-            Manage post
-          </button>
-        ) : null}
       </div>
 
       {isOwner ? (
@@ -276,25 +366,65 @@ export default function PostDetail({ postId }: PostDetailProps) {
         />
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto flex w-full max-w-md items-stretch border-t border-stone-200 bg-white/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto flex w-full max-w-md items-center gap-2 border-t border-stone-200 bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur">
+        {isOwner ? (
+          <button
+            type="button"
+            onClick={() => {
+              setManageSheetKey((key) => key + 1);
+              setManageSheetOpen(true);
+            }}
+            aria-label="Manage post"
+            className="flex flex-1 items-center gap-1.5 rounded-full bg-stone-100 px-4 py-2.5 text-sm font-bold text-stone-600"
+          >
+            <MoreIcon />
+            Manage post
+          </button>
+        ) : (
+          <input
+            type="text"
+            disabled
+            placeholder="Say something…"
+            aria-label="Add a comment"
+            className="flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none disabled:cursor-not-allowed"
+          />
+        )}
+
         <button
           type="button"
-          onClick={toggleSaved}
-          aria-pressed={isSaved}
-          className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
+          onClick={handleToggleLike}
+          aria-pressed={isLiked}
+          aria-label={isLiked ? "Unlike" : "Like"}
+          className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
         >
-          <span className={`text-lg leading-none ${isSaved ? "text-orange-500" : "text-stone-500"}`}>
-            {isSaved ? "♥" : "♡"}
+          <span className={isLiked ? "text-red-500" : "text-stone-500"}>
+            <LikeIcon filled={isLiked} />
           </span>
-          Save
+          {likeCount}
         </button>
+
+        <button
+          type="button"
+          onClick={handleToggleSave}
+          aria-pressed={isSaved}
+          aria-label={isSaved ? "Unsave" : "Save"}
+          className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
+        >
+          <span className={isSaved ? "text-orange-500" : "text-stone-500"}>
+            <SaveIcon filled={isSaved} />
+          </span>
+          {saveCount}
+        </button>
+
         <button
           type="button"
           onClick={scrollToComments}
-          className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
+          aria-label="Comments"
+          className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
         >
           <CommentIcon />
-          Comment
+          {/* Always 0 — no comments table/UI exists yet; this is real, not a fake number. */}
+          0
         </button>
       </div>
     </main>

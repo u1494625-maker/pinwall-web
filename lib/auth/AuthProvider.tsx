@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { AuthUser } from "@supabase/supabase-js";
+import { migrateLocalSavesToSupabase } from "@/lib/interactions";
 import { supabase } from "@/lib/supabase/client";
 
 type AuthContextValue = {
@@ -34,6 +35,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Runs once per real sign-in — migrateLocalSavesToSupabase itself checks a
+  // one-time flag and no-ops immediately if already done, so this being
+  // called again on every auth-state change (e.g. token refresh) is harmless.
+  useEffect(() => {
+    if (user) {
+      migrateLocalSavesToSupabase(user.id);
+    }
+  }, [user]);
 
   async function signInWithGoogle() {
     await supabase.auth.signInWithOAuth({

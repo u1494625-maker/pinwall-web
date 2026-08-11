@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
 import MasonryFeed, { FeedSkeleton } from "./MasonryFeed";
 import TopBar from "./TopBar";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useAllPostsState } from "@/lib/posts";
+import { useFollowedUserIds } from "@/lib/interactions";
 import { filterPostsInBounds, useSavedMapViewport } from "@/lib/map/viewport";
+import { getPostsByUserIds, useAllPostsState } from "@/lib/posts";
+import type { Post } from "@/types/post";
 
 type HomeTab = "Following" | "Explore" | "Maps";
 
@@ -87,6 +89,33 @@ export default function PinWallHome() {
     [posts, savedViewport],
   );
 
+  // Following feed: posts authored by users the signed-in viewer follows.
+  // Self-follows are impossible (DB-enforced), so the viewer's own posts
+  // never appear here without needing a separate exclusion check.
+  const { ids: followedUserIds, loading: followedLoading } = useFollowedUserIds();
+  const [followingPosts, setFollowingPosts] = useState<Post[]>([]);
+  const [followingPostsLoading, setFollowingPostsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isFollowingTab || followedLoading) return;
+    let cancelled = false;
+
+    async function loadFollowingPosts() {
+      setFollowingPostsLoading(true);
+      const result = await getPostsByUserIds(followedUserIds);
+      if (!cancelled) {
+        setFollowingPosts(result);
+        setFollowingPostsLoading(false);
+      }
+    }
+
+    loadFollowingPosts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isFollowingTab, followedUserIds, followedLoading]);
+
   // Following requires a signed-in user. Reuse the same auth state/loading
   // shape RequireAuth uses elsewhere, so this behaves consistently — no
   // redirect, no flash of the wrong content while the session is resolving.
@@ -105,9 +134,15 @@ export default function PinWallHome() {
       </TopBar>
 
       {isFollowingTab ? (
-        <div className="px-6 py-20 text-center">
-          <p className="text-sm text-stone-500">Posts from people you follow will appear here.</p>
-        </div>
+        followedLoading || followingPostsLoading ? (
+          <FeedSkeleton />
+        ) : followingPosts.length > 0 ? (
+          <MasonryFeed posts={followingPosts} />
+        ) : (
+          <div className="px-6 py-20 text-center">
+            <p className="text-sm text-stone-500">Posts from people you follow will appear here.</p>
+          </div>
+        )
       ) : isMapsTab ? (
         savedViewport?.bounds ? (
           postsLoading ? (
