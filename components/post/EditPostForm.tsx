@@ -127,7 +127,7 @@ function EditPostFields({ post }: { post: Post }) {
         {cover?.type === "video" ? (
           // Read-only — media replacement is out of scope for this phase.
           <video
-            src={cover.url}
+            src={`${cover.url}#t=0.001`}
             controls
             playsInline
             preload="metadata"

@@ -11,7 +11,10 @@ type PostVideoTileProps = {
 export default function PostVideoTile({ src, className = "" }: PostVideoTileProps) {
   return (
     <div className={`relative overflow-hidden bg-stone-900 ${className}`}>
-      <video src={src} muted playsInline preload="metadata" className="size-full object-cover" />
+      {/* #t=0.001 forces iOS Safari to decode and paint a frame for a video
+          that never autoplays — without it, Safari's conservative preload
+          policy can leave the tile blank until playback actually starts. */}
+      <video src={`${src}#t=0.001`} muted playsInline preload="metadata" className="size-full object-cover" />
       <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
         <span className="grid size-9 place-items-center rounded-full bg-white/90 text-base text-stone-900">▶</span>
       </div>
