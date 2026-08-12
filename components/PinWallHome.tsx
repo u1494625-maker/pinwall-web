@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
@@ -69,6 +69,40 @@ function useHomeTab(): HomeTab {
   return isValidHomeTab(raw) ? raw : DEFAULT_HOME_TAB;
 }
 
+// Remembers each tab's own scroll position across a full PinWallHome remount
+// (e.g. Home -> Post Detail -> Map -> Home are separate routes, so this
+// component unmounts and remounts) — same sessionStorage-per-tab idiom as
+// useHomeTab above, just for scroll offset instead of the selected tab.
+const HOME_SCROLL_KEY_PREFIX = "pinwall_home_scroll_";
+
+function saveHomeScrollY(tab: HomeTab, y: number) {
+  try {
+    window.sessionStorage.setItem(HOME_SCROLL_KEY_PREFIX + tab, String(y));
+  } catch {
+    // Ignore storage failures (e.g. private browsing quota) — same as saveHomeTab above.
+  }
+}
+
+function readHomeScrollY(tab: HomeTab): number {
+  try {
+    return Number(window.sessionStorage.getItem(HOME_SCROLL_KEY_PREFIX + tab)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// React warns if useLayoutEffect runs during server rendering ("does nothing
+// on the server") — PinWallHome IS server-rendered (it's the / page), so the
+// scroll-restore effect below uses this client-only-on-mount indirection
+// instead of calling useLayoutEffect directly.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+// Module-level, same reasoning as lib/posts.ts's cachedAllPosts: the
+// Following feed is fetched separately (it depends on the viewer's follow
+// list, not just post ids), so it needs its own instant-hydrate-then-
+// revalidate cache to avoid its own loading flash on remount.
+let cachedFollowingPosts: Post[] | null = null;
+
 export default function PinWallHome() {
   const selectedTab = useHomeTab();
   const { user, loading } = useAuth();
@@ -93,16 +127,16 @@ export default function PinWallHome() {
   // Self-follows are impossible (DB-enforced), so the viewer's own posts
   // never appear here without needing a separate exclusion check.
   const { ids: followedUserIds, loading: followedLoading } = useFollowedUserIds();
-  const [followingPosts, setFollowingPosts] = useState<Post[]>([]);
-  const [followingPostsLoading, setFollowingPostsLoading] = useState(true);
+  const [followingPosts, setFollowingPosts] = useState<Post[]>(() => cachedFollowingPosts ?? []);
+  const [followingPostsLoading, setFollowingPostsLoading] = useState(() => cachedFollowingPosts === null);
 
   useEffect(() => {
     if (!isFollowingTab || followedLoading) return;
     let cancelled = false;
 
     async function loadFollowingPosts() {
-      setFollowingPostsLoading(true);
       const result = await getPostsByUserIds(followedUserIds);
+      cachedFollowingPosts = result;
       if (!cancelled) {
         setFollowingPosts(result);
         setFollowingPostsLoading(false);
@@ -115,6 +149,28 @@ export default function PinWallHome() {
       cancelled = true;
     };
   }, [isFollowingTab, followedUserIds, followedLoading]);
+
+  // Restores this tab's last scroll position before paint, so returning to
+  // Home (e.g. Home -> Post Detail -> Map -> Home, or just switching tabs and
+  // back) lands where the user left off instead of snapping to the top —
+  // reliable without waiting on images, since every card's height is already
+  // known synchronously from its media's aspect ratio (see
+  // PostCard/DemoPhoto). Saving is done on this same effect's cleanup rather
+  // than a live "scroll" event listener: `window` is one global object
+  // shared across the whole SPA session, so a listener can still fire (and
+  // record a stale reading, often 0) if a scroll event lands in the gap
+  // after the destination page starts existing but before React finishes
+  // detaching Home's listener — a race that plain event-listener cleanup
+  // cannot reliably win. A layout-effect cleanup has no such gap: it runs
+  // synchronously, as part of the same commit, while the DOM is still
+  // genuinely Home's own — right as this tab is about to be replaced, by a
+  // tab switch or by the whole component unmounting for a route change.
+  useIsomorphicLayoutEffect(() => {
+    window.scrollTo(0, readHomeScrollY(selectedTab));
+    return () => {
+      saveHomeScrollY(selectedTab, window.scrollY);
+    };
+  }, [selectedTab]);
 
   // Following requires a signed-in user. Reuse the same auth state/loading
   // shape RequireAuth uses elsewhere, so this behaves consistently — no

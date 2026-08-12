@@ -75,6 +75,7 @@ function rowToPost(row: PostRow): Post {
     // correct, honest fallback (never a guessed or fake number).
     likeCount: 0,
     saveCount: 0,
+    commentCount: 0,
     viewerHasLiked: false,
     viewerHasSaved: false,
   };
@@ -91,17 +92,19 @@ type PostEngagementRow = {
   post_id: number;
   like_count: number;
   save_count: number;
+  comment_count: number;
   viewer_has_liked: boolean;
   viewer_has_saved: boolean;
 };
 
 /**
- * Attaches real likeCount/saveCount/viewerHasLiked/viewerHasSaved to an
- * already-fetched batch of posts via ONE additional RPC call keyed on their
- * ids — never one call per post (no N+1), and never a raw liker/saver ID
- * list shipped to the client (see supabase/interactions.sql's
- * get_post_engagement for why this is a separate RPC rather than embedded
- * directly in the posts query).
+ * Attaches real likeCount/saveCount/commentCount/viewerHasLiked/
+ * viewerHasSaved to an already-fetched batch of posts via ONE additional RPC
+ * call keyed on their ids — never one call per post (no N+1), and never a
+ * raw liker/saver ID list shipped to the client (see
+ * supabase/interactions.sql and supabase/comments.sql's get_post_engagement
+ * for why this is a separate RPC rather than embedded directly in the posts
+ * query).
  */
 async function attachEngagement(posts: Post[]): Promise<Post[]> {
   if (posts.length === 0) return posts;
@@ -126,6 +129,7 @@ async function attachEngagement(posts: Post[]): Promise<Post[]> {
       ...post,
       likeCount: engagement.like_count,
       saveCount: engagement.save_count,
+      commentCount: engagement.comment_count,
       viewerHasLiked: engagement.viewer_has_liked,
       viewerHasSaved: engagement.viewer_has_saved,
     };
@@ -332,18 +336,31 @@ export async function updatePost(id: number, fields: PostEditableFields): Promis
 }
 
 /**
+ * Last successful getAllPosts() result, kept in module scope (not React
+ * state) so it survives every consumer unmounting — e.g. navigating
+ * Home -> Post Detail -> Map and back, which are separate routes and fully
+ * remount PinWallHome. useAllPostsState hydrates from this synchronously on
+ * mount (no loading-skeleton flash on a repeat visit within the same
+ * session) while still kicking off a fresh fetch every mount, exactly as
+ * before, to stay eventually consistent — this only changes what's shown
+ * while that fetch is in flight, never the end result.
+ */
+let cachedAllPosts: Post[] | null = null;
+
+/**
  * Fetches every post on mount, exposing loading state alongside the data so
  * callers can distinguish "still loading" from "genuinely empty" — `posts`
  * alone is `[]` in both cases until this resolves.
  */
 export function useAllPostsState(): { posts: Post[]; loading: boolean } {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<Post[]>(() => cachedAllPosts ?? []);
+  const [loading, setLoading] = useState(() => cachedAllPosts === null);
 
   useEffect(() => {
     let cancelled = false;
 
     getAllPosts().then((result) => {
+      cachedAllPosts = result;
       if (!cancelled) {
         setPosts(result);
         setLoading(false);

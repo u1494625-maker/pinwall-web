@@ -29,10 +29,11 @@ export type Post = {
   createdAt?: string;
   /** Ordered by position; media[0] is always the cover. Empty for text posts. */
   media: PostMedia[];
-  /** Real aggregates from post_likes/post_saves, fetched via the
+  /** Real aggregates from post_likes/post_saves/comments, fetched via the
    *  get_post_engagement RPC — never a raw liker/saver ID list. */
   likeCount: number;
   saveCount: number;
+  commentCount: number;
   /** Whether the currently signed-in viewer has liked/saved this post.
    *  Always false for a signed-out viewer. */
   viewerHasLiked: boolean;

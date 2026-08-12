@@ -1,12 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type * as LType from "leaflet";
-import DemoPhoto from "@/components/DemoPhoto";
-import PostVideoTile from "@/components/PostVideoTile";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
 import { buildClusterIndex, getVisibleMapFeatures, type PostClusterIndex } from "@/lib/map/clustering";
@@ -65,10 +62,12 @@ export default function MapPage() {
   const clusterIndexRef = useRef<PostClusterIndex | null>(null);
   const postsByIdRef = useRef<Map<number, Post>>(new Map());
   const moveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Which post's marker should render highlighted — read by updateMarkers via
-  // ref (not React state) because it's called from Leaflet event handlers bound
-  // once at mount, which would otherwise close over a stale value.
-  const previewPostIdRef = useRef<number | null>(null);
+  // Which post's marker should render highlighted (the "View on Map" deep-link
+  // target only, now that clicking a marker navigates straight to Post Detail
+  // instead of opening a preview) — read by updateMarkers via ref (not React
+  // state) because it's called from Leaflet event handlers bound once at
+  // mount, which would otherwise close over a stale value.
+  const highlightedPostIdRef = useRef<number | null>(null);
   // Set right before a one-shot programmatic camera move (View on Map targeting)
   // so the very next debounced save skips persisting it as the ambient viewport.
   const suppressNextViewportSaveRef = useRef(false);
@@ -79,7 +78,6 @@ export default function MapPage() {
   const updateMarkersRef = useRef<() => void>(() => {});
 
   const [isMapReady, setIsMapReady] = useState(false);
-  const [previewPost, setPreviewPost] = useState<Post | null>(null);
 
   const updateMarkers = useCallback(() => {
     const map = mapRef.current;
@@ -109,7 +107,7 @@ export default function MapPage() {
             <PostMapMarker
               cover={post.media[0]}
               title={getDisplayTitle(post)}
-              highlighted={previewPostIdRef.current === post.id}
+              highlighted={highlightedPostIdRef.current === post.id}
             />,
           ),
           className: "",
@@ -121,9 +119,7 @@ export default function MapPage() {
         leaflet
           .marker([post.latitude, post.longitude], { icon })
           .on("click", () => {
-            previewPostIdRef.current = post.id;
-            setPreviewPost(post);
-            updateMarkersRef.current();
+            router.push(`/post/${post.id}`);
           })
           .addTo(layer);
       } else {
@@ -145,8 +141,6 @@ export default function MapPage() {
         leaflet
           .marker([cluster.latitude, cluster.longitude], { icon })
           .on("click", () => {
-            previewPostIdRef.current = null;
-            setPreviewPost(null);
             const params = new URLSearchParams({
               postIds: cluster.postIds.join(","),
               lat: String(cluster.latitude),
@@ -279,12 +273,11 @@ export default function MapPage() {
     if (target) {
       hasResolvedTargetRef.current = true;
       suppressNextViewportSaveRef.current = true;
-      // Apply the highlight/preview once the camera actually settles (Leaflet
-      // fires moveend whether or not the move animates), rather than eagerly
-      // inside this effect body.
+      // Apply the highlight once the camera actually settles (Leaflet fires
+      // moveend whether or not the move animates), rather than eagerly inside
+      // this effect body.
       map.once("moveend", () => {
-        previewPostIdRef.current = target.id;
-        setPreviewPost(target);
+        highlightedPostIdRef.current = target.id;
         updateMarkersRef.current();
       });
       map.setView([target.latitude, target.longitude], TARGET_POST_ZOOM);
@@ -305,47 +298,6 @@ export default function MapPage() {
   return (
     <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div ref={containerRef} className="h-full w-full" />
-
-      {previewPost ? (
-        <article className="absolute inset-x-3 bottom-24 z-20 flex gap-3 rounded-2xl bg-white/95 p-3 shadow-xl backdrop-blur">
-          <button
-            type="button"
-            onClick={() => {
-              previewPostIdRef.current = null;
-              setPreviewPost(null);
-              updateMarkers();
-            }}
-            aria-label="Close preview"
-            className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-stone-900/80 text-xs text-white"
-          >
-            ×
-          </button>
-          {previewPost.media[0]?.type === "video" ? (
-            <PostVideoTile src={previewPost.media[0].url} className="h-20 w-24 shrink-0 rounded-xl" />
-          ) : previewPost.media[0] ? (
-            <DemoPhoto
-              src={previewPost.media[0].url}
-              alt={getDisplayTitle(previewPost)}
-              className="h-20 w-24 shrink-0 rounded-xl"
-            />
-          ) : null}
-          <div className="min-w-0 py-1 pr-4">
-            {previewPost.locationName ? (
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">
-                {previewPost.locationName}
-              </p>
-            ) : null}
-            <h2 className="mt-0.5 truncate text-sm font-black">{getDisplayTitle(previewPost)}</h2>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-500">{previewPost.caption}</p>
-            <Link
-              href={`/post/${previewPost.id}`}
-              className="mt-2 inline-flex rounded-full bg-stone-900 px-3 py-1.5 text-[11px] font-bold text-white"
-            >
-              View post
-            </Link>
-          </div>
-        </article>
-      ) : null}
     </main>
   );
 }

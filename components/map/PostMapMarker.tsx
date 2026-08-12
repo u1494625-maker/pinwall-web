@@ -6,7 +6,7 @@ type PostMapMarkerProps = {
   cover: PostMedia | undefined;
   /** Already resolved (e.g. via getDisplayTitle) — this component doesn't handle a missing title. */
   title: string;
-  /** True for the post targeted via "View on Map" (or otherwise the active preview) — a lightweight visual cue only, not a redesign. */
+  /** True for the post targeted via "View on Map" — a lightweight visual cue only, not a redesign. */
   highlighted?: boolean;
 };
 

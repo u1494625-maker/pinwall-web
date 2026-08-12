@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PostMediaGallery from "@/components/PostMediaGallery";
 import PostManageSheet from "@/components/post/PostManageSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { addComment, deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle } from "@/lib/postDisplay";
@@ -101,6 +102,25 @@ function SaveIcon({ filled = false }: { filled?: boolean }) {
   );
 }
 
+/** Outlined trash can — delete a comment. */
+function DeleteIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4"
+    >
+      <path d="M4 7h16" />
+      <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
+      <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+    </svg>
+  );
+}
+
 function MoreIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="size-3.5">
@@ -138,6 +158,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
   const post = posts.find((candidate) => candidate.id === postId);
   const { isFollowing: isFollowingFromQuery } = useIsFollowing(post?.userId);
   const commentsSectionRef = useRef<HTMLDivElement>(null);
+  const commentInputRef = useRef<HTMLInputElement>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [manageSheetOpen, setManageSheetOpen] = useState(false);
   // Bumped only when opening, so PostManageSheet remounts with fresh internal state each
@@ -149,6 +170,33 @@ export default function PostDetail({ postId }: PostDetailProps) {
   const [likeOverride, setLikeOverride] = useState<{ liked: boolean; count: number } | null>(null);
   const [saveOverride, setSaveOverride] = useState<{ saved: boolean; count: number } | null>(null);
   const [followOverride, setFollowOverride] = useState<boolean | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(true);
+  const [commentInput, setCommentInput] = useState("");
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const currentPostId = post?.id;
+    if (currentPostId === undefined) return;
+
+    let cancelled = false;
+
+    async function load(id: number) {
+      setCommentsLoading(true);
+      const result = await getCommentsForPost(id);
+      if (!cancelled) {
+        setComments(result);
+        setCommentsLoading(false);
+      }
+    }
+
+    load(currentPostId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [post?.id]);
 
   if (loading) {
     return <PostDetailSkeleton />;
@@ -172,6 +220,10 @@ export default function PostDetail({ postId }: PostDetailProps) {
   const isSaved = saveOverride?.saved ?? post.viewerHasSaved;
   const saveCount = saveOverride?.count ?? post.saveCount;
   const isFollowing = followOverride ?? isFollowingFromQuery;
+  // Real count from get_post_engagement until the actual comment list has
+  // loaded, then the live list length — never flashes 0, stays exact after
+  // adding/deleting.
+  const displayedCommentCount = commentsLoading ? post.commentCount : comments.length;
 
   async function handleToggleLike() {
     if (!user) {
@@ -225,6 +277,43 @@ export default function PostDetail({ postId }: PostDetailProps) {
 
   function scrollToComments() {
     commentsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    commentInputRef.current?.focus();
+  }
+
+  async function handleSubmitComment() {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
+    if (!post) return;
+    const trimmed = commentInput.trim();
+    if (!trimmed || isPostingComment) return;
+
+    const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
+
+    setIsPostingComment(true);
+    try {
+      const newComment = await addComment(post.id, user.id, authorName, trimmed);
+      setComments((prev) => [...prev, newComment]);
+      setCommentInput("");
+    } catch {
+      // Leave the typed text in place so the user can retry.
+    } finally {
+      setIsPostingComment(false);
+    }
+  }
+
+  async function handleDeleteComment(commentId: number) {
+    const previous = comments;
+    setDeletingCommentId(commentId);
+    setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+    try {
+      await deleteComment(commentId);
+    } catch {
+      setComments(previous);
+    } finally {
+      setDeletingCommentId(null);
+    }
   }
 
   async function handleShare() {
@@ -336,22 +425,63 @@ export default function PostDetail({ postId }: PostDetailProps) {
 
         <div ref={commentsSectionRef} className="mt-6 border-t border-stone-200 pt-5">
           <h2 className="text-sm font-black text-stone-900">Comments</h2>
-          <p className="mt-4 text-center text-xs text-stone-400">Be the first to comment.</p>
-          <div className="mt-4 flex items-center gap-2">
+
+          {commentsLoading ? (
+            <p className="mt-4 text-center text-xs text-stone-400">Loading comments…</p>
+          ) : comments.length === 0 ? (
+            <p className="mt-4 text-center text-xs text-stone-400">Be the first to comment.</p>
+          ) : (
+            <ul className="mt-4 space-y-4">
+              {comments.map((comment) => (
+                <li key={comment.id} className="flex items-start gap-2.5">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-stone-200 text-xs font-black text-stone-600">
+                    {comment.author.charAt(0).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-stone-900">{comment.author}</p>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-stone-700">{comment.body}</p>
+                    <p className="mt-1 text-[11px] text-stone-400">{formatRelativeDate(comment.createdAt)}</p>
+                  </div>
+                  {user && user.id === comment.userId ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteComment(comment.id)}
+                      disabled={deletingCommentId === comment.id}
+                      aria-label="Delete comment"
+                      className="shrink-0 rounded-full p-1.5 text-stone-400 disabled:opacity-50"
+                    >
+                      <DeleteIcon />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmitComment();
+            }}
+            className="mt-4 flex items-center gap-2"
+          >
             <input
+              ref={commentInputRef}
               type="text"
-              disabled
-              placeholder="Comments are coming soon"
-              className="flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none disabled:cursor-not-allowed"
+              value={commentInput}
+              onChange={(event) => setCommentInput(event.target.value)}
+              placeholder={user ? "Add a comment…" : "Sign in to comment"}
+              aria-label="Add a comment"
+              className="flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
             />
             <button
-              type="button"
-              disabled
-              className="shrink-0 rounded-full bg-stone-200 px-4 py-2.5 text-xs font-bold text-stone-400 disabled:cursor-not-allowed"
+              type="submit"
+              disabled={isPostingComment || (Boolean(user) && !commentInput.trim())}
+              className="shrink-0 rounded-full bg-stone-900 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
             >
               Send
             </button>
-          </div>
+          </form>
         </div>
 
       </div>
@@ -383,10 +513,14 @@ export default function PostDetail({ postId }: PostDetailProps) {
         ) : (
           <input
             type="text"
-            disabled
+            readOnly
+            onClick={(event) => {
+              event.currentTarget.blur();
+              scrollToComments();
+            }}
             placeholder="Say something…"
             aria-label="Add a comment"
-            className="flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none disabled:cursor-not-allowed"
+            className="flex-1 cursor-pointer rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none"
           />
         )}
 
@@ -423,8 +557,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
           className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
         >
           <CommentIcon />
-          {/* Always 0 — no comments table/UI exists yet; this is real, not a fake number. */}
-          0
+          {displayedCommentCount}
         </button>
       </div>
     </main>
