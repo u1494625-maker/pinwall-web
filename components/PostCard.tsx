@@ -61,25 +61,45 @@ type PostCardProps = {
   post: Post;
 };
 
+function PostCardAuthor({ post }: { post: Post }) {
+  const content = (
+    <>
+      <span className="grid size-4 shrink-0 place-items-center rounded-full bg-stone-200 text-[8px] font-black text-stone-600">
+        {post.author.charAt(0).toUpperCase()}
+      </span>
+      <span className="truncate text-[11px] font-medium text-stone-500">{post.author}</span>
+    </>
+  );
+
+  // Degrade safely: a post with no real owner (e.g. authored before auth
+  // existed) gets plain, unlinked author text rather than a fake profile link.
+  if (!post.userId) {
+    return <div className="mt-1.5 flex items-center gap-1.5">{content}</div>;
+  }
+
+  return (
+    <Link href={`/profile/${post.userId}`} className="mt-1.5 flex items-center gap-1.5">
+      {content}
+    </Link>
+  );
+}
+
 export default function PostCard({ post }: PostCardProps) {
   return (
     <article className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]">
       <Link href={`/post/${post.id}`}>
         <PostCardMedia post={post} />
 
-        <div className="p-2.5">
+        <div className="px-2.5 pt-2.5">
           <h2 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">
             {getDisplayTitle(post)}
           </h2>
-
-          <div className="mt-1.5 flex items-center gap-1.5">
-            <span className="grid size-4 shrink-0 place-items-center rounded-full bg-stone-200 text-[8px] font-black text-stone-600">
-              {post.author.charAt(0).toUpperCase()}
-            </span>
-            <span className="truncate text-[11px] font-medium text-stone-500">{post.author}</span>
-          </div>
         </div>
       </Link>
+
+      <div className="px-2.5 pb-2.5">
+        <PostCardAuthor post={post} />
+      </div>
     </article>
   );
 }

@@ -1,0 +1,216 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import DemoPhoto from "@/components/DemoPhoto";
+import PostCard from "@/components/PostCard";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { followUser, getProfileStats, unfollowUser, useIsFollowing, type ProfileStats } from "@/lib/interactions";
+import { getPostsByUserIds } from "@/lib/posts";
+import { getProfile, type Profile } from "@/lib/profiles";
+import type { Post } from "@/types/post";
+
+type PublicProfileProps = {
+  userId: string;
+};
+
+const EMPTY_STATS: ProfileStats = { followingCount: 0, followersCount: 0, likesAndSavesCount: 0 };
+
+function ProfileHeaderSkeleton() {
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7]">
+      <div className="h-56 w-full animate-pulse bg-stone-200" />
+    </main>
+  );
+}
+
+export default function PublicProfile({ userId }: PublicProfileProps) {
+  const router = useRouter();
+  const { user, signInWithGoogle } = useAuth();
+  const [profile, setProfile] = useState<Profile | undefined>(undefined);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [stats, setStats] = useState<ProfileStats>(EMPTY_STATS);
+  const { isFollowing: isFollowingFromQuery } = useIsFollowing(userId);
+  // null means "no local action yet this session, trust the fetched query
+  // value" — same optimistic-override pattern PostDetail uses for Follow.
+  const [followOverride, setFollowOverride] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setProfileLoading(true);
+      setPostsLoading(true);
+      setFollowOverride(null);
+
+      getProfile(userId).then((result) => {
+        if (!cancelled) {
+          setProfile(result);
+          setProfileLoading(false);
+        }
+      });
+
+      getPostsByUserIds([userId]).then((result) => {
+        if (!cancelled) {
+          setPosts(result);
+          setPostsLoading(false);
+        }
+      });
+
+      getProfileStats(userId).then((result) => {
+        if (!cancelled) setStats(result);
+      });
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const isOwnProfile = Boolean(user && user.id === userId);
+  const isFollowing = followOverride ?? isFollowingFromQuery;
+
+  async function handleToggleFollow() {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
+    const wasFollowing = isFollowing;
+    setFollowOverride(!wasFollowing);
+    try {
+      if (wasFollowing) await unfollowUser(user.id, userId);
+      else await followUser(user.id, userId);
+    } catch {
+      setFollowOverride(wasFollowing);
+    }
+  }
+
+  if (profileLoading) {
+    return <ProfileHeaderSkeleton />;
+  }
+
+  if (!profile) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center bg-[#fbfaf7] px-8 text-center">
+        <h1 className="text-lg font-black">Profile not found</h1>
+        <p className="mt-2 text-sm text-stone-500">This user may no longer exist.</p>
+        <Link href="/" className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white">
+          Back to Explore
+        </Link>
+      </main>
+    );
+  }
+
+  const displayName = profile.displayName ?? "Pinwall user";
+
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-16 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
+      <div className="relative h-56 w-full">
+        <div className="absolute inset-0 overflow-hidden bg-stone-800">
+          {profile.avatarUrl ? (
+            <DemoPhoto src={profile.avatarUrl} alt="" className="absolute inset-0 scale-150 blur-3xl" />
+          ) : null}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/45 to-black/80" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => router.back()}
+          aria-label="Go back"
+          className="absolute left-4 top-5 grid size-9 place-items-center rounded-full bg-white/15 text-2xl leading-none text-white backdrop-blur-sm"
+        >
+          ‹
+        </button>
+
+        <div className="absolute inset-x-4 -bottom-9 z-20 flex items-end gap-3">
+          {profile.avatarUrl ? (
+            <DemoPhoto
+              src={profile.avatarUrl}
+              alt={`${displayName} profile photo`}
+              className="size-20 shrink-0 rounded-full border-4 border-[#fbfaf7] shadow-lg"
+            />
+          ) : (
+            <div className="grid size-20 shrink-0 place-items-center rounded-full border-4 border-[#fbfaf7] bg-stone-200 text-xl font-black text-stone-600 shadow-lg">
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0 pb-11">
+            <h1 className="truncate text-base font-black text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+              {displayName}
+            </h1>
+          </div>
+        </div>
+      </div>
+
+      <div className="relative rounded-t-3xl bg-[#fbfaf7] pt-11">
+        {profile.bio ? <p className="px-5 pb-4 text-sm leading-6 text-stone-600">{profile.bio}</p> : null}
+
+        <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{stats.followingCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Following</p>
+          </div>
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{stats.followersCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Followers</p>
+          </div>
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{stats.likesAndSavesCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Likes &amp; Saves</p>
+          </div>
+        </div>
+
+        {!isOwnProfile ? (
+          <div className="flex gap-2.5 px-4 pt-4">
+            <button
+              type="button"
+              onClick={handleToggleFollow}
+              aria-pressed={isFollowing}
+              aria-label={isFollowing ? "Unfollow" : "Follow"}
+              className={`flex-1 rounded-xl py-2.5 text-sm font-bold ${
+                isFollowing ? "bg-stone-100 text-stone-500" : "bg-stone-900 text-white"
+              }`}
+            >
+              {isFollowing ? "Following" : "Follow"}
+            </button>
+            <Link
+              href={`/messages?to=${userId}`}
+              className="flex-1 rounded-xl bg-stone-100 py-2.5 text-center text-sm font-bold text-stone-600"
+            >
+              Message
+            </Link>
+          </div>
+        ) : null}
+
+        <div className="px-4 pb-2 pt-6">
+          <h2 className="text-sm font-black text-stone-900">Posts</h2>
+        </div>
+
+        <div className="p-3">
+          {postsLoading ? (
+            <div className="columns-2 gap-2">
+              {[0, 1, 2, 3].map((key) => (
+                <div key={key} className="mb-2 h-40 animate-pulse rounded-2xl bg-stone-200" />
+              ))}
+            </div>
+          ) : posts.length > 0 ? (
+            <div className="columns-2 gap-2">
+              {posts.map((post) => (
+                <PostCard key={post.id} post={post} />
+              ))}
+            </div>
+          ) : (
+            <div className="py-16 text-center">
+              <p className="text-sm text-stone-400">No posts yet.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}

@@ -11,6 +11,7 @@ import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, u
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPostsState } from "@/lib/posts";
+import type { Post } from "@/types/post";
 
 type PostDetailProps = {
   postId: number;
@@ -28,6 +29,33 @@ function formatRelativeDate(iso: string): string {
   if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
   if (diffMs < 7 * day) return `${Math.floor(diffMs / day)}d ago`;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(then);
+}
+
+/** Avatar + name, linking to the author's public profile — real userId only,
+ *  never derived from the display-only author string. Degrades to plain,
+ *  unlinked text for posts with no owner (e.g. authored before auth existed). */
+function PostAuthorIdentity({ post }: { post: Post }) {
+  const content = (
+    <>
+      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-stone-200 text-sm font-black text-stone-600">
+        {post.author.charAt(0).toUpperCase()}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-bold text-stone-900">{post.author}</p>
+        {post.createdAt ? <p className="text-[11px] text-stone-400">{formatRelativeDate(post.createdAt)}</p> : null}
+      </div>
+    </>
+  );
+
+  if (!post.userId) {
+    return <div className="flex min-w-0 flex-1 items-center gap-3">{content}</div>;
+  }
+
+  return (
+    <Link href={`/profile/${post.userId}`} className="flex min-w-0 flex-1 items-center gap-3">
+      {content}
+    </Link>
+  );
 }
 
 function ShareIcon() {
@@ -349,14 +377,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
           ‹
         </button>
 
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-stone-200 text-sm font-black text-stone-600">
-          {post.author.charAt(0).toUpperCase()}
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-stone-900">{post.author}</p>
-          {post.createdAt ? <p className="text-[11px] text-stone-400">{formatRelativeDate(post.createdAt)}</p> : null}
-        </div>
+        <PostAuthorIdentity post={post} />
 
         {!isOwner ? (
           <button

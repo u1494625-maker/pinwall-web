@@ -42,7 +42,12 @@ export default function BottomNav() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const isHydrated = useSyncExternalStore(subscribeNever, getIsHydrated, getIsHydratedServerSnapshot);
 
-  if (pathname === "/search" || pathname.startsWith("/post/") || pathname.startsWith("/add")) {
+  if (
+    pathname === "/search" ||
+    pathname.startsWith("/post/") ||
+    pathname.startsWith("/add") ||
+    pathname.startsWith("/profile/")
+  ) {
     return null;
   }
 
