@@ -5,7 +5,7 @@ import { AuthProvider } from "@/lib/auth/AuthProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PinWall — Campus spots worth saving",
+  title: "PinWall — Social enough to share. Useful enough to search.",
   description: "Social enough to share. Useful enough to search.",
 };
 

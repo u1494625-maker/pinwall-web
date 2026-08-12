@@ -4,14 +4,10 @@ import type { MapCluster } from "./types";
 
 export type PostPointProps = {
   postId: number;
-  /** The post's cover image URL — only ever set when the cover is an image (never video/text). */
-  coverImageUrl: string | undefined;
 };
 
 export type ClusterAccumulatedProps = {
   postIds: number[];
-  /** Only ever sourced from an actual image post in the cluster — never a video URL, never null. */
-  representativeImageUrl: string | undefined;
 };
 
 export type PostClusterIndex = Supercluster<PostPointProps, ClusterAccumulatedProps>;
@@ -29,15 +25,9 @@ export async function buildClusterIndex(posts: Post[]): Promise<PostClusterIndex
     maxZoom: 17,
     map: (props): ClusterAccumulatedProps => ({
       postIds: [props.postId],
-      representativeImageUrl: props.coverImageUrl,
     }),
     reduce: (accumulated, props) => {
       accumulated.postIds = accumulated.postIds.concat(props.postIds);
-      // Prefer keeping whichever representative image was found first; only fill it
-      // in from a later point if the cluster didn't already have one.
-      if (!accumulated.representativeImageUrl && props.representativeImageUrl) {
-        accumulated.representativeImageUrl = props.representativeImageUrl;
-      }
     },
   });
 
@@ -46,7 +36,6 @@ export async function buildClusterIndex(posts: Post[]): Promise<PostClusterIndex
       type: "Feature",
       properties: {
         postId: post.id,
-        coverImageUrl: post.media[0]?.type === "image" ? post.media[0].url : undefined,
       },
       geometry: {
         type: "Point",
@@ -86,7 +75,6 @@ export function getVisibleMapFeatures(
           longitude,
           postCount: feature.properties.point_count,
           postIds: feature.properties.postIds,
-          representativeImageUrl: feature.properties.representativeImageUrl,
           expansionZoom,
         },
       };
@@ -94,4 +82,56 @@ export function getVisibleMapFeatures(
 
     return { kind: "post", postId: feature.properties.postId };
   });
+}
+
+const EARTH_RADIUS_KM = 6371;
+
+function toRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+/** Great-circle distance between two lat/lng points, in kilometers. */
+function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(a));
+}
+
+/** A post's own cover, but only when it's actually an image — matches the
+ *  existing convention (photos and video are never mixed in one post) that
+ *  media[0] is the image whenever the post has one at all. */
+function usableCoverImageUrl(post: Post): string | undefined {
+  const cover = post.media[0];
+  return cover?.type === "image" ? cover.url : undefined;
+}
+
+/**
+ * The cluster's own cover image: the first usable image belonging to
+ * whichever member post is geographically closest to the cluster's center,
+ * skipping outward past any nearer text/video-only/imageless posts.
+ * Undefined only if no member post has a usable image at all — callers
+ * should fall back to the existing non-image marker treatment in that case.
+ */
+export function pickClusterCoverImage(
+  center: { latitude: number; longitude: number },
+  postIds: number[],
+  postsById: Map<number, Post>,
+): string | undefined {
+  const nearestFirst = postIds
+    .map((id) => postsById.get(id))
+    .filter((post): post is Post => post != null && post.latitude != null && post.longitude != null)
+    .map((post) => ({
+      post,
+      distanceKm: haversineDistanceKm(center.latitude, center.longitude, post.latitude as number, post.longitude as number),
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+
+  for (const { post } of nearestFirst) {
+    const imageUrl = usableCoverImageUrl(post);
+    if (imageUrl) return imageUrl;
+  }
+
+  return undefined;
 }

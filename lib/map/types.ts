@@ -24,6 +24,5 @@ export type MapCluster = {
   longitude: number;
   postCount: number;
   postIds: number[];
-  representativeImageUrl?: string;
   expansionZoom: number;
 };

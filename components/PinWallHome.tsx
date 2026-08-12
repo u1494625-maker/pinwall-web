@@ -211,6 +211,9 @@ export default function PinWallHome() {
                 </Link>
               </div>
               <MasonryFeed posts={mapsFeedPosts} />
+              <p className="px-6 pb-10 pt-6 text-center text-xs text-stone-400">
+                That&apos;s all the posts in your selected area.
+              </p>
             </>
           ) : (
             <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">

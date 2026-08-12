@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type * as LType from "leaflet";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
-import { buildClusterIndex, getVisibleMapFeatures, type PostClusterIndex } from "@/lib/map/clustering";
+import { buildClusterIndex, getVisibleMapFeatures, pickClusterCoverImage, type PostClusterIndex } from "@/lib/map/clustering";
 import { hasValidMapLocation, readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
 import type { Post } from "@/types/post";
@@ -127,11 +127,19 @@ export default function MapPage() {
         // Matches this cluster's actual rendered bubble size (48/56/64px) — not a fixed
         // constant — so the anchor stays centered regardless of postCount.
         const size = clusterMarkerSizePx(cluster.postCount);
+        // Nearest-to-center member post with a usable image, skipping outward
+        // past any nearer text/video-only posts — undefined (falls back to
+        // the plain orange marker) only if the whole cluster has no image.
+        const representativeImageUrl = pickClusterCoverImage(
+          { latitude: cluster.latitude, longitude: cluster.longitude },
+          cluster.postIds,
+          postsByIdRef.current,
+        );
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
             <PostClusterMarker
               postCount={cluster.postCount}
-              representativeImageUrl={cluster.representativeImageUrl}
+              representativeImageUrl={representativeImageUrl}
             />,
           ),
           className: "",
