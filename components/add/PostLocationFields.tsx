@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import LocationPicker from "@/components/map/LocationPicker";
 
 type PostLocationFieldsProps = {
@@ -7,6 +8,16 @@ type PostLocationFieldsProps = {
   onToggleShowOnMap: () => void;
   coords: { lat: number; lng: number } | null;
   onCoordsChange: (coords: { lat: number; lng: number }) => void;
+  /** Suppresses the built-in LocationPicker (but keeps the master toggle row
+   *  above) — used by MediaPostEditor when per-photo mode is supplying its
+   *  own location UI for this post instead. Defaults to false, so every
+   *  other caller (TextPostEditor) is completely unaffected. */
+  hidePicker?: boolean;
+  /** Extra content rendered inside the "showOnMap" section, below the
+   *  built-in picker (or in its place when hidePicker is true) — used by
+   *  MediaPostEditor to nest the per-photo location option here so it only
+   *  ever appears while this master switch is on. */
+  children?: ReactNode;
 };
 
 /** Shared "Show this post on the map" settings rows, used by both MediaPostEditor and TextPostEditor. */
@@ -15,6 +26,8 @@ export default function PostLocationFields({
   onToggleShowOnMap,
   coords,
   onCoordsChange,
+  hidePicker = false,
+  children,
 }: PostLocationFieldsProps) {
   return (
     <div className="overflow-hidden rounded-2xl bg-white">
@@ -38,8 +51,9 @@ export default function PostLocationFields({
       </div>
 
       {showOnMap ? (
-        <div className="border-t border-stone-100 px-4 py-3.5">
-          <LocationPicker value={coords} onChange={onCoordsChange} />
+        <div className="space-y-3 border-t border-stone-100 px-4 py-3.5">
+          {!hidePicker ? <LocationPicker value={coords} onChange={onCoordsChange} /> : null}
+          {children}
         </div>
       ) : null}
     </div>

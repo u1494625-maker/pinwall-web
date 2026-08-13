@@ -2,7 +2,9 @@ import DemoPhoto from "@/components/DemoPhoto";
 import type { PostMedia } from "@/types/post";
 
 type PostMapMarkerProps = {
-  /** The post's cover media (media[0]) — undefined for text posts. */
+  /** The media to display — usually the post's cover (media[0]), but for a
+   *  per-photo-located item this is that specific photo instead. Undefined
+   *  for text posts. */
   cover: PostMedia | undefined;
   /** Already resolved (e.g. via getDisplayTitle) — this component doesn't handle a missing title. */
   title: string;
@@ -35,6 +37,13 @@ export default function PostMapMarker({
         >
           {cover?.type === "image" ? (
             <DemoPhoto src={cover.url} alt={title} className="aspect-square w-full" />
+          ) : cover?.type === "video" && cover.thumbnailUrl ? (
+            <div className="relative aspect-square w-full">
+              <DemoPhoto src={cover.thumbnailUrl} alt={title} className="size-full" />
+              <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
+                <span className="grid size-6 place-items-center rounded-full bg-white/90 text-xs text-stone-900">▶</span>
+              </div>
+            </div>
           ) : cover?.type === "video" ? (
             <div className="grid aspect-square w-full place-items-center bg-stone-800 text-base text-white">▶</div>
           ) : (

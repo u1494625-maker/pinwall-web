@@ -18,11 +18,23 @@ export type MapViewport = {
   bounds?: MapBounds;
 };
 
+export type MapClusterItemRef = {
+  postId: number;
+  mediaId: number | null;
+};
+
 export type MapCluster = {
   id: number;
   latitude: number;
   longitude: number;
-  postCount: number;
+  /** Count of map items (pins) bundled into this cluster — NOT deduped by
+   *  post. Two located photos of the same post legitimately count as two:
+   *  a cluster groups map items, not unique posts. */
+  itemCount: number;
+  items: MapClusterItemRef[];
+  /** Deduped unique post ids among this cluster's items — used only by the
+   *  cluster-feed link, which shows one card per post regardless of how many
+   *  of that post's items are bundled into this cluster. */
   postIds: number[];
   expansionZoom: number;
 };

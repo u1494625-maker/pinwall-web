@@ -6,8 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type * as LType from "leaflet";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
-import { buildClusterIndex, getVisibleMapFeatures, pickClusterCoverImage, type PostClusterIndex } from "@/lib/map/clustering";
-import { hasValidMapLocation, readMapViewport, saveMapViewport } from "@/lib/map/viewport";
+import { buildClusterIndex, buildMapItems, getVisibleMapFeatures, pickClusterCoverImage, type MapItemIndex } from "@/lib/map/clustering";
+import { readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
 import type { Post } from "@/types/post";
 import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
@@ -21,8 +21,6 @@ const MOVE_DEBOUNCE_MS = 200;
 // Matches clustering.ts's Supercluster maxZoom — close enough that a targeted
 // post is shown as an individual pin rather than folded into a cluster.
 const TARGET_POST_ZOOM = 17;
-
-type LocatedPost = Post & { latitude: number; longitude: number };
 
 function viewportFromMap(map: LType.Map): MapViewport {
   const center = map.getCenter();
@@ -42,10 +40,10 @@ function viewportFromMap(map: LType.Map): MapViewport {
 
 export default function MapPage() {
   const allPosts = useAllPosts();
-  const mapPosts = useMemo<LocatedPost[]>(
-    () => allPosts.filter(hasValidMapLocation),
-    [allPosts],
-  );
+  // Every located point on the Map — a specific photo's own location when a
+  // post uses per-photo locations, or one legacy post-level point otherwise.
+  // See buildMapItems for the exact precedence rule.
+  const mapItems = useMemo(() => buildMapItems(allPosts), [allPosts]);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -54,20 +52,27 @@ export default function MapPage() {
     const parsed = rawTargetPostId === null ? NaN : Number(rawTargetPostId);
     return Number.isFinite(parsed) ? parsed : null;
   }, [rawTargetPostId]);
+  const rawTargetMediaId = searchParams.get("mediaId");
+  const targetMediaId = useMemo(() => {
+    const parsed = rawTargetMediaId === null ? NaN : Number(rawTargetMediaId);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [rawTargetMediaId]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markerLayerRef = useRef<LType.LayerGroup | null>(null);
-  const clusterIndexRef = useRef<PostClusterIndex | null>(null);
+  const clusterIndexRef = useRef<MapItemIndex | null>(null);
   const postsByIdRef = useRef<Map<number, Post>>(new Map());
   const moveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Which post's marker should render highlighted (the "View on Map" deep-link
+  // Which item's marker should render highlighted (the "View on Map" deep-link
   // target only, now that clicking a marker navigates straight to Post Detail
   // instead of opening a preview) — read by updateMarkers via ref (not React
   // state) because it's called from Leaflet event handlers bound once at
-  // mount, which would otherwise close over a stale value.
-  const highlightedPostIdRef = useRef<number | null>(null);
+  // mount, which would otherwise close over a stale value. Keyed by both
+  // postId and mediaId so highlighting one photo never also highlights
+  // another photo belonging to the same post.
+  const highlightedItemRef = useRef<{ postId: number; mediaId: number | null } | null>(null);
   // Set right before a one-shot programmatic camera move (View on Map targeting)
   // so the very next debounced save skips persisting it as the ambient viewport.
   const suppressNextViewportSaveRef = useRef(false);
@@ -98,16 +103,26 @@ export default function MapPage() {
     layer.clearLayers();
 
     for (const feature of features) {
-      if (feature.kind === "post") {
-        const post = postsByIdRef.current.get(feature.postId);
-        if (!post || post.latitude == null || post.longitude == null) continue;
+      if (feature.kind === "item") {
+        const { postId, mediaId } = feature;
+        const post = postsByIdRef.current.get(postId);
+        if (!post) continue;
+
+        // Which photo this specific marker represents: that exact photo for a
+        // per-photo-located item, or the post's own cover for a legacy item.
+        const cover = mediaId != null ? post.media.find((media) => media.id === mediaId) : post.media[0];
+        const latitude = mediaId != null ? cover?.latitude : post.latitude;
+        const longitude = mediaId != null ? cover?.longitude : post.longitude;
+        if (latitude == null || longitude == null) continue;
 
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
             <PostMapMarker
-              cover={post.media[0]}
+              cover={cover}
               title={getDisplayTitle(post)}
-              highlighted={highlightedPostIdRef.current === post.id}
+              highlighted={
+                highlightedItemRef.current?.postId === postId && highlightedItemRef.current?.mediaId === mediaId
+              }
             />,
           ),
           className: "",
@@ -117,34 +132,41 @@ export default function MapPage() {
           iconAnchor: [40, 80],
         });
         leaflet
-          .marker([post.latitude, post.longitude], { icon })
+          .marker([latitude, longitude], { icon })
           .on("click", () => {
-            router.push(`/post/${post.id}`);
+            router.push(mediaId != null ? `/post/${postId}?mediaId=${mediaId}` : `/post/${postId}`);
           })
           .addTo(layer);
       } else {
         const { cluster } = feature;
-        // Matches this cluster's actual rendered bubble size (48/56/64px) — not a fixed
-        // constant — so the anchor stays centered regardless of postCount.
-        const size = clusterMarkerSizePx(cluster.postCount);
-        // Nearest-to-center member post with a usable image, skipping outward
-        // past any nearer text/video-only posts — undefined (falls back to
+        // Nearest-to-center member item with a usable image, skipping outward
+        // past any nearer text/video-only items — undefined (falls back to
         // the plain orange marker) only if the whole cluster has no image.
         const representativeImageUrl = pickClusterCoverImage(
           { latitude: cluster.latitude, longitude: cluster.longitude },
-          cluster.postIds,
+          cluster.items,
           postsByIdRef.current,
         );
+        // Image-bearing clusters render at the exact same box/anchor as a single
+        // PostMapMarker (see its own iconSize/iconAnchor above) so a location
+        // doesn't visually jump when it crosses the clustered/unclustered
+        // threshold while zooming. The no-image fallback keeps its own
+        // itemCount-based bubble size (48/56/64px), centered as before.
+        const fallbackSize = clusterMarkerSizePx(cluster.itemCount);
+        const iconSize: [number, number] = representativeImageUrl ? [80, 80] : [fallbackSize, fallbackSize];
+        const iconAnchor: [number, number] = representativeImageUrl
+          ? [40, 80]
+          : [fallbackSize / 2, fallbackSize / 2];
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
             <PostClusterMarker
-              postCount={cluster.postCount}
+              itemCount={cluster.itemCount}
               representativeImageUrl={representativeImageUrl}
             />,
           ),
           className: "",
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
+          iconSize,
+          iconAnchor,
         });
         leaflet
           .marker([cluster.latitude, cluster.longitude], { icon })
@@ -153,7 +175,7 @@ export default function MapPage() {
               postIds: cluster.postIds.join(","),
               lat: String(cluster.latitude),
               lng: String(cluster.longitude),
-              count: String(cluster.postCount),
+              count: String(cluster.itemCount),
               zoom: String(cluster.expansionZoom),
             });
             router.push(`/map/cluster/${cluster.id}?${params.toString()}`);
@@ -248,14 +270,17 @@ export default function MapPage() {
   }, []);
 
   // Rebuild the clustering index only when the underlying post set actually changes,
-  // then redraw markers for the current viewport.
+  // then redraw markers for the current viewport. postsByIdRef is built from
+  // EVERY post, not just ones with a post-level location — a per-photo post
+  // deliberately has no post-level location at all (see MediaPostEditor), so
+  // filtering here would silently drop its own markers.
   useEffect(() => {
     if (!isMapReady) return;
 
     let cancelled = false;
-    postsByIdRef.current = new Map(mapPosts.map((post) => [post.id, post]));
+    postsByIdRef.current = new Map(allPosts.map((post) => [post.id, post]));
 
-    buildClusterIndex(mapPosts).then((index) => {
+    buildClusterIndex(mapItems).then((index) => {
       if (cancelled) return;
       clusterIndexRef.current = index;
       updateMarkers();
@@ -264,19 +289,27 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [mapPosts, isMapReady, updateMarkers]);
+  }, [allPosts, mapItems, isMapReady, updateMarkers]);
 
   // Resolve a "View on Map" target once posts are available: center on the
-  // post, zoom in close, and mark it highlighted — without touching the
-  // ambient viewport (see the mount effect and scheduleUpdate above for how
-  // that separation is kept).
+  // exact item (a specific photo, or the post-level location), zoom in
+  // close, and mark it highlighted — without touching the ambient viewport
+  // (see the mount effect and scheduleUpdate above for how that separation
+  // is kept). When mediaId is absent (a legacy /map?postId= link), matches
+  // the post's legacy item if it still has one, or — for a post that has
+  // since become per-photo-located — falls back to its first located photo
+  // (media[0]-first convention, same as pickClusterCoverImage/PostCard's own
+  // cover-selection precedent), so a stale link still lands somewhere
+  // sensible rather than resolving to nothing.
   useEffect(() => {
     if (!isMapReady || targetPostId === null || hasResolvedTargetRef.current) return;
 
     const map = mapRef.current;
     if (!map) return;
 
-    const target = mapPosts.find((post) => post.id === targetPostId);
+    const target = mapItems.find(
+      (item) => item.postId === targetPostId && (targetMediaId === null || item.mediaId === targetMediaId),
+    );
 
     if (target) {
       hasResolvedTargetRef.current = true;
@@ -285,23 +318,24 @@ export default function MapPage() {
       // moveend whether or not the move animates), rather than eagerly inside
       // this effect body.
       map.once("moveend", () => {
-        highlightedPostIdRef.current = target.id;
+        highlightedItemRef.current = { postId: target.postId, mediaId: target.mediaId };
         updateMarkersRef.current();
       });
       map.setView([target.latitude, target.longitude], TARGET_POST_ZOOM);
       return;
     }
 
-    // No matching, located post — postId may be invalid, missing, or point at a
-    // post without a location, or posts simply haven't finished loading yet.
-    // Only give up once posts have actually loaded (allPosts.length > 0); at
-    // that point this behaves exactly like a plain /map visit and establishes
-    // the ambient viewport from wherever the map already is.
+    // No matching, located item — postId/mediaId may be invalid, missing, or
+    // point at a post without a location, or posts simply haven't finished
+    // loading yet. Only give up once posts have actually loaded
+    // (allPosts.length > 0); at that point this behaves exactly like a plain
+    // /map visit and establishes the ambient viewport from wherever the map
+    // already is.
     if (allPosts.length > 0) {
       hasResolvedTargetRef.current = true;
       saveMapViewport(viewportFromMap(map));
     }
-  }, [isMapReady, mapPosts, allPosts.length, targetPostId, updateMarkers]);
+  }, [isMapReady, mapItems, allPosts.length, targetPostId, targetMediaId, updateMarkers]);
 
   return (
     <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">

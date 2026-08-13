@@ -10,6 +10,17 @@ export type PostMedia = {
   storagePath: string;
   aspectRatio: string | null;
   position: number;
+  /** Client-generated cover-frame JPEG for a video item — used only for
+   *  static previews (e.g. the Map marker). Undefined for images and for
+   *  video items published before this existed. Never used for playback. */
+  thumbnailUrl?: string;
+  /** Optional per-photo map location, independent of the post's own
+   *  showOnMap/latitude/longitude — see lib/map/clustering.ts's
+   *  buildMapItems for the precedence rule between the two. Image items
+   *  only; never set on video. */
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
 };
 
 export type Post = {

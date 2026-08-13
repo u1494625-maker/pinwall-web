@@ -11,10 +11,14 @@ import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, u
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPostsState } from "@/lib/posts";
-import type { Post } from "@/types/post";
+import type { Post, PostMedia } from "@/types/post";
 
 type PostDetailProps = {
   postId: number;
+  /** From /post/[id]?mediaId=... (e.g. a Map marker for a specific photo) —
+   *  seeds which photo the gallery opens on. Undefined for a plain link,
+   *  which behaves exactly as before (opens on media[0]). */
+  initialMediaId?: number;
 };
 
 function formatRelativeDate(iso: string): string {
@@ -159,6 +163,18 @@ function MoreIcon() {
   );
 }
 
+/** Which photo the gallery should open on: the requested mediaId if it
+ *  actually belongs to this post, otherwise media[0] — same "media[0] is the
+ *  canonical default" convention used everywhere else in this codebase. */
+function resolveInitialMedia(post: Post, initialMediaId: number | undefined): PostMedia | null {
+  if (post.media.length === 0) return null;
+  if (initialMediaId != null) {
+    const match = post.media.find((item) => item.id === initialMediaId);
+    if (match) return match;
+  }
+  return post.media[0];
+}
+
 /** Neutral placeholder shown only while posts are loading — never the real "not found" state. */
 function PostDetailSkeleton() {
   return (
@@ -179,7 +195,7 @@ function PostDetailSkeleton() {
   );
 }
 
-export default function PostDetail({ postId }: PostDetailProps) {
+export default function PostDetail({ postId, initialMediaId }: PostDetailProps) {
   const router = useRouter();
   const { user, signInWithGoogle } = useAuth();
   const { posts, loading } = useAllPostsState();
@@ -188,6 +204,12 @@ export default function PostDetail({ postId }: PostDetailProps) {
   const commentsSectionRef = useRef<HTMLDivElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  // null means "no gallery interaction yet this session, trust the derived
+  // default" — same override idiom as likeOverride/saveOverride/followOverride
+  // below. Drives the page indicator, View on Map targeting, and stays the
+  // one single source of truth for "which photo is active" (see
+  // PostMediaGallery's onActiveMediaChange).
+  const [activeMediaOverride, setActiveMediaOverride] = useState<PostMedia | null>(null);
   const [manageSheetOpen, setManageSheetOpen] = useState(false);
   // Bumped only when opening, so PostManageSheet remounts with fresh internal state each
   // time — it stays mounted (same key) through its own close animation when closing.
@@ -243,6 +265,17 @@ export default function PostDetail({ postId }: PostDetailProps) {
   }
 
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
+  const activeMedia = activeMediaOverride ?? resolveInitialMedia(post, initialMediaId);
+  // A post "uses per-photo locations" the moment ANY of its media has its own
+  // location — derived from data, no stored flag needed (see
+  // lib/map/clustering.ts's buildMapItems for the same rule applied on Map).
+  const isPerPhotoPost = post.media.some((media) => media.latitude != null && media.longitude != null);
+  const viewOnMapTarget: { href: string; label: string } | null =
+    activeMedia && activeMedia.latitude != null && activeMedia.longitude != null
+      ? { href: `/map?postId=${post.id}&mediaId=${activeMedia.id}`, label: post.locationName || "View on Map" }
+      : !isPerPhotoPost && hasValidMapLocation(post)
+        ? { href: `/map?postId=${post.id}`, label: post.locationName || "View on Map" }
+        : null;
   const isLiked = likeOverride?.liked ?? post.viewerHasLiked;
   const likeCount = likeOverride?.count ?? post.likeCount;
   const isSaved = saveOverride?.saved ?? post.viewerHasSaved;
@@ -411,15 +444,21 @@ export default function PostDetail({ postId }: PostDetailProps) {
         </div>
       ) : null}
 
-      <PostMediaGallery media={post.media} title={getDisplayTitle(post)} />
+      <PostMediaGallery
+        media={post.media}
+        title={getDisplayTitle(post)}
+        initialMediaId={initialMediaId}
+        onActiveMediaChange={setActiveMediaOverride}
+        viewOnMapTarget={viewOnMapTarget}
+      />
 
       <div className="px-5 pt-5">
-        {hasValidMapLocation(post) ? (
+        {post.media.length === 0 && viewOnMapTarget ? (
           <Link
-            href={`/map?postId=${post.id}`}
+            href={viewOnMapTarget.href}
             className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.14em] text-orange-600"
           >
-            📍 {post.locationName || "View on Map"}
+            📍 {viewOnMapTarget.label}
           </Link>
         ) : null}
 

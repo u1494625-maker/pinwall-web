@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "r
 import { useRouter } from "next/navigation";
 import ComposerBottomBar from "@/components/add/ComposerBottomBar";
 import ComposerTopBar from "@/components/add/ComposerTopBar";
+import PerPhotoLocationFields from "@/components/add/PerPhotoLocationFields";
 import PostLocationFields from "@/components/add/PostLocationFields";
 import TagChipInput from "@/components/add/TagChipInput";
 import TitleField from "@/components/add/TitleField";
@@ -14,6 +15,7 @@ import { MAX_IMAGE_SOURCE_BYTES, prepareImageForUpload, type ImageDiagnostics } 
 import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { addPost, type NewPostMediaInput } from "@/lib/posts";
 import { ALLOWED_MEDIA_TYPES, MAX_VIDEO_BYTES, deletePostMedia, uploadPostMedia } from "@/lib/storage";
+import { generateVideoThumbnail } from "@/lib/videoThumbnail";
 import type { MediaType } from "@/types/post";
 
 type MediaPostEditorProps = {
@@ -36,6 +38,9 @@ type DraftMediaItem = {
   type: MediaType;
   /** Set for every image item (undefined for video) — see lib/imageOptimization.ts. */
   imageDiagnostics?: ImageDiagnostics;
+  /** This photo's own optional map location — only ever set for image items,
+   *  and only submitted when perPhotoLocationMode is on (see handleSubmit). */
+  location?: { lat: number; lng: number };
 };
 
 /**
@@ -95,11 +100,71 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const [tags, setTags] = useState<string[]>([]);
   const [showOnMap, setShowOnMap] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [perPhotoLocationMode, setPerPhotoLocationMode] = useState(false);
+  const [selectedLocationKeys, setSelectedLocationKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConvertingHeic, setIsConvertingHeic] = useState(false);
 
   const mode = modeFor(mediaItems);
+
+  // Turning per-photo mode OFF — whether the user toggles it directly or
+  // handleRemoveMedia collapses it for them below — must also drop any pins
+  // already assigned, so "off" really means today's exact behavior, not
+  // "off, but still secretly submitting per-photo pins."
+  function turnOffPerPhotoLocationMode() {
+    setPerPhotoLocationMode(false);
+    setSelectedLocationKeys(new Set());
+    setMediaItems((items) => items.map((item) => ({ ...item, location: undefined })));
+  }
+
+  // The master "Show this post on the map" switch — turning it off must also
+  // exit per-photo mode and drop any per-photo pins, so no per-photo data
+  // can survive hidden behind a location section that now looks fully off.
+  function handleToggleShowOnMap() {
+    setShowOnMap((prev) => {
+      const next = !prev;
+      if (!next) {
+        turnOffPerPhotoLocationMode();
+      }
+      return next;
+    });
+  }
+
+  function handleTogglePerPhotoLocationMode() {
+    if (perPhotoLocationMode) {
+      turnOffPerPhotoLocationMode();
+      return;
+    }
+    // Per-photo mode is only ever reachable while "Show this post on the
+    // map" is already on (it's nested inside that section) — never touch
+    // showOnMap here, only the post-level coords it fully supersedes.
+    setPerPhotoLocationMode(true);
+    setCoords(null);
+  }
+
+  function handleTogglePhotoSelection(key: string) {
+    setSelectedLocationKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  // Assigns one location to every currently selected photo at once. The
+  // selection deliberately stays active afterward — dragging the same pin
+  // again re-applies to the same batch, and the picker stays open — until
+  // the user explicitly changes which photos are selected.
+  function handleSetLocationForSelectedPhotos(location: { lat: number; lng: number }) {
+    setMediaItems((prev) => prev.map((item) => (selectedLocationKeys.has(item.key) ? { ...item, location } : item)));
+  }
+
+  function handleClearLocationForSelectedPhotos() {
+    setMediaItems((prev) =>
+      prev.map((item) => (selectedLocationKeys.has(item.key) ? { ...item, location: undefined } : item)),
+    );
+  }
 
   // Keeps the latest media items available to the unmount-only cleanup effect
   // below without making that effect depend on (and re-run per) every change.
@@ -262,11 +327,30 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   }
 
   function handleRemoveMedia(key: string) {
-    setMediaItems((prev) => {
-      const item = prev.find((i) => i.key === key);
-      if (item) URL.revokeObjectURL(item.previewUrl);
-      return prev.filter((i) => i.key !== key);
+    const item = mediaItems.find((i) => i.key === key);
+    if (item) URL.revokeObjectURL(item.previewUrl);
+    const remaining = mediaItems.filter((i) => i.key !== key);
+
+    // Per-photo mode only makes sense with >1 photo — collapse back to the
+    // single-location editor the moment that stops being true, mirroring
+    // modeFor's "removing every item returns to neutral" convention already
+    // used in this file.
+    if (perPhotoLocationMode && remaining.length <= 1) {
+      setSelectedLocationKeys(new Set());
+      setPerPhotoLocationMode(false);
+      setMediaItems(remaining.map((i) => ({ ...i, location: undefined })));
+      return;
+    }
+
+    // A removed photo can no longer be "selected" — drop it from the batch
+    // rather than leaving a phantom entry pointing at nothing.
+    setSelectedLocationKeys((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
     });
+    setMediaItems(remaining);
   }
 
   function handleMoveMedia(key: string, direction: -1 | 1) {
@@ -300,7 +384,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       return;
     }
 
-    if (showOnMap && !coords) {
+    if (!perPhotoLocationMode && showOnMap && !coords) {
       setError("Choose a location on the map before publishing.");
       return;
     }
@@ -332,7 +416,33 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
               : await measureImageAspectRatio(item.previewUrl);
         const { url, path } = await uploadWithDiagnostics(item, user.id, draftId);
         uploadedPaths.push(path);
-        media.push({ type: item.type, url, storagePath: path, aspectRatio, position: index });
+
+        let thumbnailUrl: string | undefined;
+        if (item.type === "video") {
+          // Best-effort only: a failure here must never block publishing the
+          // video itself — it just falls back to the existing play-glyph
+          // marker, same as any video published before thumbnails existed.
+          try {
+            const thumbnailBlob = await generateVideoThumbnail(item.file);
+            const thumbnailFile = new File([thumbnailBlob], "thumbnail.jpg", { type: "image/jpeg" });
+            const uploadedThumbnail = await uploadPostMedia(thumbnailFile, user.id, draftId);
+            uploadedPaths.push(uploadedThumbnail.path);
+            thumbnailUrl = uploadedThumbnail.url;
+          } catch (thumbnailErr) {
+            console.error("Video thumbnail generation failed (publishing without one):", thumbnailErr);
+          }
+        }
+
+        media.push({
+          type: item.type,
+          url,
+          storagePath: path,
+          aspectRatio,
+          position: index,
+          thumbnailUrl,
+          latitude: perPhotoLocationMode ? item.location?.lat : undefined,
+          longitude: perPhotoLocationMode ? item.location?.lng : undefined,
+        });
       }
 
       const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
@@ -344,9 +454,11 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         author: authorName,
         rating: 0,
         ratingCount: "New",
-        showOnMap,
-        latitude: showOnMap ? coords?.lat : undefined,
-        longitude: showOnMap ? coords?.lng : undefined,
+        // Per-photo mode fully supersedes the post-level location — never
+        // submit both for the same post (avoids double-plotting it on the Map).
+        showOnMap: perPhotoLocationMode ? false : showOnMap,
+        latitude: perPhotoLocationMode ? undefined : showOnMap ? coords?.lat : undefined,
+        longitude: perPhotoLocationMode ? undefined : showOnMap ? coords?.lng : undefined,
         userId: user.id,
         media,
       });
@@ -506,12 +618,53 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
 
         <TagChipInput tags={tags} onTagsChange={setTags} />
 
+        {/* "More than one location?" is nested inside PostLocationFields' own
+            showOnMap section (via children) so it — and everything below it —
+            only ever appears while "Show this post on the map" is on. */}
         <PostLocationFields
           showOnMap={showOnMap}
-          onToggleShowOnMap={() => setShowOnMap((prev) => !prev)}
+          onToggleShowOnMap={handleToggleShowOnMap}
           coords={coords}
           onCoordsChange={setCoords}
-        />
+          hidePicker={perPhotoLocationMode}
+        >
+          {mode === "photo" && mediaItems.length > 1 ? (
+            <>
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-orange-50 px-4 py-3">
+                <div>
+                  <p className="text-[12px] font-semibold text-orange-800">More than one location?</p>
+                  <p className="mt-0.5 text-[11px] text-orange-700">Set locations for individual photos.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={perPhotoLocationMode}
+                  aria-label="Turn per-photo locations on or off"
+                  onClick={handleTogglePerPhotoLocationMode}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    perPhotoLocationMode ? "bg-orange-500" : "bg-stone-200"
+                  }`}
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                      perPhotoLocationMode ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {perPhotoLocationMode ? (
+                <PerPhotoLocationFields
+                  photos={mediaItems}
+                  selectedKeys={selectedLocationKeys}
+                  onTogglePhoto={handleTogglePhotoSelection}
+                  onSetLocationForSelected={handleSetLocationForSelectedPhotos}
+                  onClearLocationForSelected={handleClearLocationForSelectedPhotos}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </PostLocationFields>
 
         <ComposerBottomBar isSubmitting={isSubmitting} error={error} />
       </form>

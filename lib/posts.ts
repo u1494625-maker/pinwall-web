@@ -12,6 +12,10 @@ type PostMediaRow = {
   storage_path: string;
   aspect_ratio: string | null;
   position: number;
+  thumbnail_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  location_name: string | null;
 };
 
 /** snake_case shape of a `posts` row (with nested media), as returned by Supabase/PostgREST. */
@@ -43,6 +47,10 @@ function rowToPostMedia(row: PostMediaRow): PostMedia {
     storagePath: row.storage_path,
     aspectRatio: row.aspect_ratio,
     position: row.position,
+    thumbnailUrl: row.thumbnail_url ?? undefined,
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
+    locationName: row.location_name ?? undefined,
   };
 }
 
@@ -213,6 +221,13 @@ export type NewPostMediaInput = {
   storagePath: string;
   aspectRatio: string | null;
   position: number;
+  /** Cover-frame thumbnail for a video item — omitted for images and for a
+   *  video whose thumbnail generation failed (see MediaPostEditor). */
+  thumbnailUrl?: string;
+  /** Optional per-photo location — image items only, see PostMedia. */
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
 };
 
 export type NewPostInput = {
@@ -265,6 +280,10 @@ export async function addPost(input: NewPostInput): Promise<number> {
       storagePath: item.storagePath,
       aspectRatio: item.aspectRatio,
       position: item.position,
+      thumbnailUrl: item.thumbnailUrl ?? null,
+      latitude: item.latitude ?? null,
+      longitude: item.longitude ?? null,
+      locationName: item.locationName ?? null,
     })),
   });
 

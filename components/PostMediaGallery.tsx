@@ -1,16 +1,29 @@
 "use client";
 
-import { useRef, useState, type PointerEvent } from "react";
+import Link from "next/link";
+import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import PostFullscreenGallery from "@/components/PostFullscreenGallery";
 import { resolveImageAspectRatio } from "@/lib/postDisplay";
 import type { PostMedia } from "@/types/post";
+
+export type ViewOnMapTarget = { href: string; label: string };
 
 type PostMediaGalleryProps = {
   /** Ordered by position; media[0] is the cover. Never reordered here. */
   media: PostMedia[];
   /** Used for alt text — pass getDisplayTitle(post) from the caller. */
   title: string;
+  /** From /post/[id]?mediaId=... — which photo to open the gallery on. Only
+   *  meaningful for PhotoGallery (the other variants have exactly one item). */
+  initialMediaId?: number;
+  /** Fires with the currently-visible photo whenever it changes (including
+   *  via a swipe inside the fullscreen viewer) — lets the caller (PostDetail)
+   *  own one single "active media" concept. Only fired by PhotoGallery. */
+  onActiveMediaChange?: (media: PostMedia) => void;
+  /** Precomputed by the caller (media-aware precedence lives in PostDetail) —
+   *  null/undefined renders no pill at all. */
+  viewOnMapTarget?: ViewOnMapTarget | null;
 };
 
 // A real finger tap naturally includes a few pixels of incidental movement —
@@ -45,29 +58,55 @@ export function usePointerTap(onTap: () => void) {
   return { onPointerDown, onPointerUp };
 }
 
+/** Compact overlay pill for "View on Map" — same visual language as the
+ *  page-counter pill, placed in the opposite corner. A plain sibling
+ *  element (never nested inside the tap-to-fullscreen target), so tapping
+ *  it navigates instead of also opening the fullscreen viewer. */
+function ViewOnMapPill({ target }: { target: ViewOnMapTarget }) {
+  return (
+    <Link
+      href={target.href}
+      className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold text-white"
+    >
+      📍 {target.label}
+    </Link>
+  );
+}
+
 /**
  * A video post is always exactly one item (the composer's mode rules already
  * guarantee photos and video are never mixed), so this only ever needs a
  * single, non-paged <video> — no gallery wrapper, no indicator, no fullscreen
  * viewer (photo fullscreen is explicitly out of scope for video this phase).
  */
-function VideoMedia({ item }: { item: PostMedia }) {
+function VideoMedia({ item, viewOnMapTarget }: { item: PostMedia; viewOnMapTarget?: ViewOnMapTarget | null }) {
   return (
-    // Do not autoplay with sound — playback starts only via the native controls.
-    // #t=0.001 forces iOS Safari to decode/paint a frame before playback starts.
-    <video
-      src={`${item.url}#t=0.001`}
-      controls
-      playsInline
-      preload="metadata"
-      className="aspect-[4/3] w-full bg-black object-contain"
-    />
+    <div className="relative">
+      {/* Do not autoplay with sound — playback starts only via the native controls.
+          #t=0.001 forces iOS Safari to decode/paint a frame before playback starts. */}
+      <video
+        src={`${item.url}#t=0.001`}
+        controls
+        playsInline
+        preload="metadata"
+        className="aspect-[4/3] w-full bg-black object-contain"
+      />
+      {viewOnMapTarget ? <ViewOnMapPill target={viewOnMapTarget} /> : null}
+    </div>
   );
 }
 
 /** Identical sizing to a plain single-photo post — no scroll container, no
  *  indicator — plus tap-to-fullscreen. */
-function SinglePhotoMedia({ item, title }: { item: PostMedia; title: string }) {
+function SinglePhotoMedia({
+  item,
+  title,
+  viewOnMapTarget,
+}: {
+  item: PostMedia;
+  title: string;
+  viewOnMapTarget?: ViewOnMapTarget | null;
+}) {
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   // Bumped on every open so PostFullscreenGallery remounts with fresh internal
   // state each time — same pattern as PostManageSheet's manageSheetKey.
@@ -78,7 +117,7 @@ function SinglePhotoMedia({ item, title }: { item: PostMedia; title: string }) {
   });
 
   return (
-    <>
+    <div className="relative">
       <div {...tapHandlers}>
         <DemoPhoto
           src={item.url}
@@ -87,6 +126,7 @@ function SinglePhotoMedia({ item, title }: { item: PostMedia; title: string }) {
           style={{ aspectRatio: resolveImageAspectRatio(item.aspectRatio) }}
         />
       </div>
+      {viewOnMapTarget ? <ViewOnMapPill target={viewOnMapTarget} /> : null}
       <PostFullscreenGallery
         key={fullscreenKey}
         media={[item]}
@@ -95,7 +135,7 @@ function SinglePhotoMedia({ item, title }: { item: PostMedia; title: string }) {
         initialIndex={0}
         onClose={() => setIsFullscreenOpen(false)}
       />
-    </>
+    </div>
   );
 }
 
@@ -113,9 +153,29 @@ function SinglePhotoMedia({ item, title }: { item: PostMedia; title: string }) {
  * component's own currentIndex in sync live, so closing it never needs a
  * separate reconciliation step.
  */
-function PhotoGallery({ media, title }: { media: PostMedia[]; title: string }) {
+function PhotoGallery({
+  media,
+  title,
+  initialMediaId,
+  onActiveMediaChange,
+  viewOnMapTarget,
+}: {
+  media: PostMedia[];
+  title: string;
+  initialMediaId?: number;
+  onActiveMediaChange?: (media: PostMedia) => void;
+  viewOnMapTarget?: ViewOnMapTarget | null;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // Only the very first computed value is used to seed state — matching
+  // PostFullscreenGallery's own initialIndex contract (read once, not
+  // reactive to a later-changing initialMediaId prop).
+  const initialIndex = useMemo(() => {
+    if (initialMediaId == null) return 0;
+    const index = media.findIndex((item) => item.id === initialMediaId);
+    return index === -1 ? 0 : index;
+  }, [media, initialMediaId]);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   // Bumped on every open so PostFullscreenGallery remounts with fresh internal
   // state each time — same pattern as PostManageSheet's manageSheetKey.
@@ -125,12 +185,29 @@ function PhotoGallery({ media, title }: { media: PostMedia[]; title: string }) {
     setIsFullscreenOpen(true);
   });
 
+  // Jump straight to the requested photo on mount, before paint — no visible
+  // scroll animation through the intervening slides.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = initialIndex * el.clientWidth;
+    // Only ever runs for the initial mount value — see initialIndex's own comment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleScroll() {
     const el = scrollRef.current;
     if (!el || el.clientWidth === 0) return;
     const index = Math.round(el.scrollLeft / el.clientWidth);
     const clamped = Math.min(Math.max(index, 0), media.length - 1);
-    setCurrentIndex((prev) => (prev === clamped ? prev : clamped));
+    if (clamped !== currentIndex) {
+      setCurrentIndex(clamped);
+      onActiveMediaChange?.(media[clamped]);
+    }
+  }
+
+  function handleFullscreenIndexChange(index: number) {
+    setCurrentIndex(index);
+    onActiveMediaChange?.(media[index]);
   }
 
   return (
@@ -156,6 +233,7 @@ function PhotoGallery({ media, title }: { media: PostMedia[]; title: string }) {
       <span className="absolute right-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold text-white">
         {currentIndex + 1} / {media.length}
       </span>
+      {viewOnMapTarget ? <ViewOnMapPill target={viewOnMapTarget} /> : null}
       <PostFullscreenGallery
         key={fullscreenKey}
         media={media}
@@ -163,15 +241,29 @@ function PhotoGallery({ media, title }: { media: PostMedia[]; title: string }) {
         open={isFullscreenOpen}
         initialIndex={currentIndex}
         onClose={() => setIsFullscreenOpen(false)}
-        onIndexChange={setCurrentIndex}
+        onIndexChange={handleFullscreenIndexChange}
       />
     </div>
   );
 }
 
-export default function PostMediaGallery({ media, title }: PostMediaGalleryProps) {
+export default function PostMediaGallery({
+  media,
+  title,
+  initialMediaId,
+  onActiveMediaChange,
+  viewOnMapTarget,
+}: PostMediaGalleryProps) {
   if (media.length === 0) return null;
-  if (media[0].type === "video") return <VideoMedia item={media[0]} />;
-  if (media.length === 1) return <SinglePhotoMedia item={media[0]} title={title} />;
-  return <PhotoGallery media={media} title={title} />;
+  if (media[0].type === "video") return <VideoMedia item={media[0]} viewOnMapTarget={viewOnMapTarget} />;
+  if (media.length === 1) return <SinglePhotoMedia item={media[0]} title={title} viewOnMapTarget={viewOnMapTarget} />;
+  return (
+    <PhotoGallery
+      media={media}
+      title={title}
+      initialMediaId={initialMediaId}
+      onActiveMediaChange={onActiveMediaChange}
+      viewOnMapTarget={viewOnMapTarget}
+    />
+  );
 }
