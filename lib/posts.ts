@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds } from "@/lib/profiles";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import type { MediaType, Post, PostMedia } from "@/types/post";
 
@@ -25,7 +26,6 @@ type PostRow = {
   title: string | null;
   caption: string;
   tags: string[] | null;
-  author: string;
   rating: number;
   rating_count: string;
   show_on_map: boolean;
@@ -37,7 +37,7 @@ type PostRow = {
 };
 
 const POST_COLUMNS =
-  "id, created_at, title, caption, tags, author, rating, rating_count, show_on_map, latitude, longitude, location_name, user_id, post_media(*)";
+  "id, created_at, title, caption, tags, rating, rating_count, show_on_map, latitude, longitude, location_name, user_id, post_media(*)";
 
 function rowToPostMedia(row: PostMediaRow): PostMedia {
   return {
@@ -68,7 +68,6 @@ function rowToPost(row: PostRow): Post {
     title: row.title,
     caption: row.caption,
     tags: row.tags ?? [],
-    author: row.author,
     rating: row.rating,
     ratingCount: row.rating_count,
     showOnMap: row.show_on_map,
@@ -78,6 +77,11 @@ function rowToPost(row: PostRow): Post {
     userId: row.user_id ?? undefined,
     createdAt: row.created_at,
     media,
+    // Overwritten by attachAuthorProfiles() right after fetch — this default
+    // only matters if that call fails or the post has no owner, in which
+    // case a neutral fallback (never a guessed or stale name) is correct.
+    authorDisplayName: FALLBACK_DISPLAY_NAME,
+    authorAvatarUrl: undefined,
     // Overwritten by attachEngagement() right after fetch — these defaults
     // only matter if that call fails, in which case zero/false is the
     // correct, honest fallback (never a guessed or fake number).
@@ -144,7 +148,35 @@ async function attachEngagement(posts: Post[]): Promise<Post[]> {
   });
 }
 
-/** Every post in the `posts` table, newest first, with ordered media and real engagement attached. */
+/**
+ * Attaches current authorDisplayName/authorAvatarUrl to an already-fetched
+ * batch of posts, resolved via userId -> profiles — never the old
+ * posts.author snapshot (removed entirely; see
+ * supabase/profile_identity_unification.sql). One batched query keyed on the
+ * post authors' unique user ids, regardless of how many posts are in the
+ * batch — never one request per post (no N+1). Posts with no owner (e.g. a
+ * pre-auth post) or whose owner has no profile row simply keep the
+ * FALLBACK_DISPLAY_NAME default already set in rowToPost.
+ */
+async function attachAuthorProfiles(posts: Post[]): Promise<Post[]> {
+  const userIds = posts.map((post) => post.userId).filter((id): id is string => Boolean(id));
+  if (userIds.length === 0) return posts;
+
+  const profilesByUserId = await getProfilesByUserIds(userIds);
+
+  return posts.map((post) => {
+    const profile = post.userId ? profilesByUserId.get(post.userId) : undefined;
+    if (!profile) return post;
+    return {
+      ...post,
+      authorDisplayName: profile.displayName ?? FALLBACK_DISPLAY_NAME,
+      authorAvatarUrl: profile.avatarUrl ?? undefined,
+    };
+  });
+}
+
+/** Every post in the `posts` table, newest first, with ordered media, real
+ *  engagement, and current author identity attached. */
 export async function getAllPosts(): Promise<Post[]> {
   if (!isSupabaseConfigured) {
     warnIfNotConfigured();
@@ -161,7 +193,7 @@ export async function getAllPosts(): Promise<Post[]> {
     return [];
   }
 
-  return attachEngagement((data ?? []).map(rowToPost));
+  return attachAuthorProfiles(await attachEngagement((data ?? []).map(rowToPost)));
 }
 
 /**
@@ -189,7 +221,7 @@ export async function getPostsByUserIds(userIds: string[]): Promise<Post[]> {
     return [];
   }
 
-  return attachEngagement((data ?? []).map(rowToPost));
+  return attachAuthorProfiles(await attachEngagement((data ?? []).map(rowToPost)));
 }
 
 export async function getPostById(id: number): Promise<Post | undefined> {
@@ -211,7 +243,7 @@ export async function getPostById(id: number): Promise<Post | undefined> {
 
   if (!data) return undefined;
 
-  const [post] = await attachEngagement([rowToPost(data)]);
+  const [post] = await attachAuthorProfiles(await attachEngagement([rowToPost(data)]));
   return post;
 }
 
@@ -234,7 +266,6 @@ export type NewPostInput = {
   title: string | null;
   caption: string;
   tags: string[];
-  author: string;
   rating: number;
   ratingCount: string;
   showOnMap: boolean;
@@ -265,7 +296,6 @@ export async function addPost(input: NewPostInput): Promise<number> {
       title: input.title,
       caption: input.caption,
       tags: input.tags,
-      author: input.author,
       rating: input.rating,
       ratingCount: input.ratingCount,
       showOnMap: input.showOnMap,

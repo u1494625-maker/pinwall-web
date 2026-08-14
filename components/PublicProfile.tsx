@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import DemoPhoto from "@/components/DemoPhoto";
 import PostCard from "@/components/PostCard";
+import ProfileHeader from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { followUser, getProfileStats, unfollowUser, useIsFollowing, type ProfileStats } from "@/lib/interactions";
 import { getPostsByUserIds } from "@/lib/posts";
@@ -106,50 +106,11 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
     );
   }
 
-  const displayName = profile.displayName ?? "Pinwall user";
-
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-16 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <div className="relative h-56 w-full">
-        <div className="absolute inset-0 overflow-hidden bg-stone-800">
-          {profile.avatarUrl ? (
-            <DemoPhoto src={profile.avatarUrl} alt="" className="absolute inset-0 scale-150 blur-3xl" />
-          ) : null}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/45 to-black/80" />
-        </div>
-
-        <button
-          type="button"
-          onClick={() => router.back()}
-          aria-label="Go back"
-          className="absolute left-4 top-5 grid size-9 place-items-center rounded-full bg-white/15 text-2xl leading-none text-white backdrop-blur-sm"
-        >
-          ‹
-        </button>
-
-        <div className="absolute inset-x-4 -bottom-9 z-20 flex items-end gap-3">
-          {profile.avatarUrl ? (
-            <DemoPhoto
-              src={profile.avatarUrl}
-              alt={`${displayName} profile photo`}
-              className="size-20 shrink-0 rounded-full border-4 border-[#fbfaf7] shadow-lg"
-            />
-          ) : (
-            <div className="grid size-20 shrink-0 place-items-center rounded-full border-4 border-[#fbfaf7] bg-stone-200 text-xl font-black text-stone-600 shadow-lg">
-              {displayName.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0 pb-11">
-            <h1 className="truncate text-base font-black text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
-              {displayName}
-            </h1>
-          </div>
-        </div>
-      </div>
+      <ProfileHeader profile={profile} onBack={() => router.back()} />
 
       <div className="relative rounded-t-3xl bg-[#fbfaf7] pt-11">
-        {profile.bio ? <p className="px-5 pb-4 text-sm leading-6 text-stone-600">{profile.bio}</p> : null}
-
         <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
           <div className="text-center">
             <p className="text-base font-black text-stone-900">{stats.followingCount}</p>

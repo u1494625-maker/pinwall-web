@@ -8,12 +8,15 @@ function toTimestamp(createdAt: string | undefined): number {
 
 /**
  * Client-side keyword search over the fields a post's author actually wrote —
- * title, tags, location, caption, author — weighted by how deliberate/curated
- * each field is. Substring matching, OR-semantics across query words (a post
- * matching only some words still appears, just ranked lower). No embeddings
- * or full-text index yet — this is "useful," not "sophisticated," and is
- * meant to be superseded by server-side full-text search once post volume
- * makes shipping the whole table to the client impractical.
+ * title, tags, location, caption — plus the author's current display name
+ * (via profiles, never a stored snapshot — so renaming immediately changes
+ * what search matches, same as every other display use of identity).
+ * Weighted by how deliberate/curated each field is. Substring matching,
+ * OR-semantics across query words (a post matching only some words still
+ * appears, just ranked lower). No embeddings or full-text index yet — this
+ * is "useful," not "sophisticated," and is meant to be superseded by
+ * server-side full-text search once post volume makes shipping the whole
+ * table to the client impractical.
  */
 export function searchPosts(posts: Post[], query: string): Post[] {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -25,7 +28,7 @@ export function searchPosts(posts: Post[], query: string): Post[] {
       [post.tags.join(" ").toLowerCase(), 4],
       [(post.locationName ?? "").toLowerCase(), 3],
       [post.caption.toLowerCase(), 2],
-      [post.author.toLowerCase(), 1],
+      [post.authorDisplayName.toLowerCase(), 1],
     ];
     const score = tokens.reduce(
       (sum, token) => sum + fields.reduce((s, [text, weight]) => s + (text.includes(token) ? weight : 0), 0),

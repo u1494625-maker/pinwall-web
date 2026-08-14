@@ -64,10 +64,14 @@ type PostCardProps = {
 function PostCardAuthor({ post }: { post: Post }) {
   const content = (
     <>
-      <span className="grid size-4 shrink-0 place-items-center rounded-full bg-stone-200 text-[8px] font-black text-stone-600">
-        {post.author.charAt(0).toUpperCase()}
-      </span>
-      <span className="truncate text-[11px] font-medium text-stone-500">{post.author}</span>
+      {post.authorAvatarUrl ? (
+        <DemoPhoto src={post.authorAvatarUrl} alt="" className="size-4 shrink-0 rounded-full" />
+      ) : (
+        <span className="grid size-4 shrink-0 place-items-center rounded-full bg-stone-200 text-[8px] font-black text-stone-600">
+          {post.authorDisplayName.charAt(0).toUpperCase()}
+        </span>
+      )}
+      <span className="truncate text-[11px] font-medium text-stone-500">{post.authorDisplayName}</span>
     </>
   );
 

@@ -1,17 +1,27 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import RequireAuth from "@/components/auth/RequireAuth";
-import DemoPhoto from "@/components/DemoPhoto";
 import PostCard from "@/components/PostCard";
+import ProfileHeader from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getProfileStats, useLikedPostIds, useSavedPostIds, type ProfileStats } from "@/lib/interactions";
 import { useAllPosts } from "@/lib/posts";
+import { getProfile, type Profile } from "@/lib/profiles";
 
 const profileTabs = ["Posts", "Saved", "Liked"] as const;
 type ProfileTab = (typeof profileTabs)[number];
 
 const EMPTY_STATS: ProfileStats = { followingCount: 0, followersCount: 0, likesAndSavesCount: 0 };
+
+function ProfileHeaderSkeleton() {
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7]">
+      <div className="h-56 w-full animate-pulse bg-stone-200" />
+    </main>
+  );
+}
 
 function MeContent() {
   const { user, signOut } = useAuth();
@@ -20,24 +30,29 @@ function MeContent() {
   const { ids: likedPostIds } = useLikedPostIds();
   const [activeTab, setActiveTab] = useState<ProfileTab>("Posts");
   const [stats, setStats] = useState<ProfileStats>(EMPTY_STATS);
+  const [profile, setProfile] = useState<Profile | undefined>(undefined);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
     const userId = user.id;
     let cancelled = false;
+
     getProfileStats(userId).then((result) => {
       if (!cancelled) setStats(result);
     });
+
+    getProfile(userId).then((result) => {
+      if (!cancelled) {
+        setProfile(result);
+        setProfileLoading(false);
+      }
+    });
+
     return () => {
       cancelled = true;
     };
   }, [user]);
-
-  const displayedStats = user ? stats : EMPTY_STATS;
-
-  const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
-  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? "You";
-  const email = user?.email ?? "";
 
   const myPosts = user ? posts.filter((post) => post.userId === user.id) : [];
   const savedPosts = posts.filter((post) => savedPostIds.includes(post.id));
@@ -46,69 +61,45 @@ function MeContent() {
   const emptyCopy =
     activeTab === "Posts" ? "No posts yet." : activeTab === "Saved" ? "No saved posts yet." : "No liked posts yet.";
 
+  if (profileLoading || !profile) {
+    return <ProfileHeaderSkeleton />;
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <div className="relative h-56 w-full">
-        <div className="absolute inset-0 overflow-hidden bg-stone-800">
-          {avatarUrl ? (
-            <DemoPhoto src={avatarUrl} alt="" className="absolute inset-0 scale-150 blur-3xl" />
-          ) : null}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/45 to-black/80" />
-        </div>
-
-        <div className="absolute right-4 top-5 flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-          >
-            Edit Profile
-          </button>
-          <button
-            type="button"
-            onClick={() => signOut()}
-            className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-          >
-            Log out
-          </button>
-        </div>
-
-        <div className="absolute inset-x-4 -bottom-9 z-20 flex items-end gap-3">
-          {avatarUrl ? (
-            <DemoPhoto
-              src={avatarUrl}
-              alt={`${displayName} profile photo`}
-              className="size-20 shrink-0 rounded-full border-4 border-[#fbfaf7] shadow-lg"
-            />
-          ) : (
-            <div className="grid size-20 shrink-0 place-items-center rounded-full border-4 border-[#fbfaf7] bg-stone-200 text-xl font-black text-stone-600 shadow-lg">
-              {displayName.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0 pb-11">
-            <h1 className="truncate text-base font-black text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
-              {displayName}
-            </h1>
-            {email ? (
-              <p className="mt-0.5 truncate text-[11px] font-medium text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
-                {email}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      <ProfileHeader
+        profile={profile}
+        headerActions={
+          <>
+            <Link
+              href="/me/edit"
+              className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+            >
+              Edit Profile
+            </Link>
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+            >
+              Log out
+            </button>
+          </>
+        }
+      />
 
       <div className="relative rounded-t-3xl bg-[#fbfaf7] pb-28 pt-11">
         <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
           <div className="text-center">
-            <p className="text-base font-black text-stone-900">{displayedStats.followingCount}</p>
+            <p className="text-base font-black text-stone-900">{stats.followingCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Following</p>
           </div>
           <div className="text-center">
-            <p className="text-base font-black text-stone-900">{displayedStats.followersCount}</p>
+            <p className="text-base font-black text-stone-900">{stats.followersCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Followers</p>
           </div>
           <div className="text-center">
-            <p className="text-base font-black text-stone-900">{displayedStats.likesAndSavesCount}</p>
+            <p className="text-base font-black text-stone-900">{stats.likesAndSavesCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Likes &amp; Saves</p>
           </div>
         </div>

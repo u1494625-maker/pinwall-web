@@ -445,13 +445,10 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         });
       }
 
-      const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
-
       await addPost({
         title: title.trim(),
         caption: caption.trim(),
         tags,
-        author: authorName,
         rating: 0,
         ratingCount: "New",
         // Per-photo mode fully supersedes the post-level location — never

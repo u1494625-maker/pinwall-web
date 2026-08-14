@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import DemoPhoto from "@/components/DemoPhoto";
 import PostMediaGallery from "@/components/PostMediaGallery";
 import PostManageSheet from "@/components/post/PostManageSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -41,11 +42,15 @@ function formatRelativeDate(iso: string): string {
 function PostAuthorIdentity({ post }: { post: Post }) {
   const content = (
     <>
-      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-stone-200 text-sm font-black text-stone-600">
-        {post.author.charAt(0).toUpperCase()}
-      </span>
+      {post.authorAvatarUrl ? (
+        <DemoPhoto src={post.authorAvatarUrl} alt="" className="size-9 shrink-0 rounded-full" />
+      ) : (
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-stone-200 text-sm font-black text-stone-600">
+          {post.authorDisplayName.charAt(0).toUpperCase()}
+        </span>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-bold text-stone-900">{post.author}</p>
+        <p className="truncate text-sm font-bold text-stone-900">{post.authorDisplayName}</p>
         {post.createdAt ? <p className="text-[11px] text-stone-400">{formatRelativeDate(post.createdAt)}</p> : null}
       </div>
     </>
@@ -350,11 +355,9 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
     const trimmed = commentInput.trim();
     if (!trimmed || isPostingComment) return;
 
-    const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
-
     setIsPostingComment(true);
     try {
-      const newComment = await addComment(post.id, user.id, authorName, trimmed);
+      const newComment = await addComment(post.id, user.id, trimmed);
       setComments((prev) => [...prev, newComment]);
       setCommentInput("");
     } catch {
@@ -494,11 +497,15 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
             <ul className="mt-4 space-y-4">
               {comments.map((comment) => (
                 <li key={comment.id} className="flex items-start gap-2.5">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-stone-200 text-xs font-black text-stone-600">
-                    {comment.author.charAt(0).toUpperCase()}
-                  </span>
+                  {comment.authorAvatarUrl ? (
+                    <DemoPhoto src={comment.authorAvatarUrl} alt="" className="size-8 shrink-0 rounded-full" />
+                  ) : (
+                    <span className="grid size-8 shrink-0 place-items-center rounded-full bg-stone-200 text-xs font-black text-stone-600">
+                      {comment.authorDisplayName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-stone-900">{comment.author}</p>
+                    <p className="text-xs font-bold text-stone-900">{comment.authorDisplayName}</p>
                     <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-stone-700">{comment.body}</p>
                     <p className="mt-1 text-[11px] text-stone-400">{formatRelativeDate(comment.createdAt)}</p>
                   </div>

@@ -46,7 +46,8 @@ export default function BottomNav() {
     pathname === "/search" ||
     pathname.startsWith("/post/") ||
     pathname.startsWith("/add") ||
-    pathname.startsWith("/profile/")
+    pathname.startsWith("/profile/") ||
+    pathname.startsWith("/me/edit")
   ) {
     return null;
   }

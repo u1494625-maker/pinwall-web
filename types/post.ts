@@ -29,7 +29,6 @@ export type Post = {
   title: string | null;
   caption: string;
   tags: string[];
-  author: string;
   rating: number;
   ratingCount: string;
   showOnMap: boolean;
@@ -38,6 +37,14 @@ export type Post = {
   locationName?: string;
   userId?: string;
   createdAt?: string;
+  /** Current profile identity for this post's owner, resolved via userId ->
+   *  profiles (never a stored snapshot) — see lib/posts.ts's
+   *  attachAuthorProfiles. authorDisplayName is always a renderable string
+   *  (falls back to FALLBACK_DISPLAY_NAME when there's no owner/profile);
+   *  authorAvatarUrl is undefined whenever there's no avatar to show, in
+   *  which case UI falls back to an initial-letter circle. */
+  authorDisplayName: string;
+  authorAvatarUrl?: string;
   /** Ordered by position; media[0] is always the cover. Empty for text posts. */
   media: PostMedia[];
   /** Real aggregates from post_likes/post_saves/comments, fetched via the

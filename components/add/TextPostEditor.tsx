@@ -43,14 +43,12 @@ export default function TextPostEditor() {
     setIsSubmitting(true);
 
     try {
-      const authorName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Anonymous";
       const trimmedTitle = title.trim();
 
       await addPost({
         title: trimmedTitle ? trimmedTitle : null,
         caption: caption.trim(),
         tags,
-        author: authorName,
         rating: 0,
         ratingCount: "New",
         showOnMap,

@@ -77,3 +77,34 @@ export async function deletePostMedia(path: string): Promise<void> {
     throw new Error(`Failed to remove uploaded file: ${error.message}`);
   }
 }
+
+/**
+ * Uploads a cropped profile image (avatar or background) to a FIXED path per
+ * user per kind — `${userId}/profile/avatar.jpg` / `.../background.jpg` —
+ * with `upsert: true`, so replacing an image overwrites the previous one in
+ * place. Unlike uploadPostMedia's unique-path-per-file scheme (where a
+ * collision would be a bug), a profile image deliberately always replaces
+ * the last one: there is never an orphaned old file to separately clean up.
+ * The returned URL carries a cache-busting query param (the underlying
+ * Storage path never changes, so without this a browser/CDN could keep
+ * serving the previous image after a replace).
+ */
+export async function uploadProfileImage(file: Blob, userId: string, kind: "avatar" | "background"): Promise<string> {
+  const path = `${userId}/profile/${kind}.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, file, { contentType: "image/jpeg", upsert: true });
+
+  if (uploadError) {
+    throw new Error(`Couldn't upload your ${kind} image — ${uploadError.message}.`);
+  }
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+
+  if (!data?.publicUrl) {
+    throw new Error(`Failed to get a public URL for the uploaded ${kind} image.`);
+  }
+
+  return `${data.publicUrl}?v=${Date.now()}`;
+}
