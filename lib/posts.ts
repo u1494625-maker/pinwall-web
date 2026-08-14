@@ -396,6 +396,31 @@ export async function updatePost(id: number, fields: PostEditableFields): Promis
  */
 let cachedAllPosts: Post[] | null = null;
 
+// A cold first request can occasionally hang indefinitely (network-level
+// stall, not something getAllPosts()'s own {error} handling ever sees) and
+// never settle at all — a plain .catch() does nothing for a promise that
+// never rejects. Racing it against this timeout guarantees the hook always
+// moves on. The retry gives a stuck/failed first attempt exactly one more
+// chance (matching what already happens by accident whenever some other
+// page's own successful fetch has warmed cachedAllPosts first) — never more.
+const POSTS_FETCH_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timed out loading posts")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /**
  * Fetches every post on mount, exposing loading state alongside the data so
  * callers can distinguish "still loading" from "genuinely empty" — `posts`
@@ -408,13 +433,31 @@ export function useAllPostsState(): { posts: Post[]; loading: boolean } {
   useEffect(() => {
     let cancelled = false;
 
-    getAllPosts().then((result) => {
-      cachedAllPosts = result;
-      if (!cancelled) {
-        setPosts(result);
-        setLoading(false);
+    (async () => {
+      let result: Post[];
+      try {
+        result = await withTimeout(getAllPosts(), POSTS_FETCH_TIMEOUT_MS);
+      } catch {
+        // First attempt timed out or rejected — one immediate retry, no more.
+        // Skipped entirely once this effect has already been cleaned up
+        // (e.g. React StrictMode's dev-only double-invoke), so a torn-down
+        // instance never fires a second request nobody will use.
+        if (cancelled) return;
+        try {
+          result = await withTimeout(getAllPosts(), POSTS_FETCH_TIMEOUT_MS);
+        } catch {
+          // Both attempts failed — stop loading and keep whatever was
+          // already showing (cached posts if any, otherwise the initial []).
+          if (!cancelled) setLoading(false);
+          return;
+        }
       }
-    });
+
+      if (cancelled) return;
+      cachedAllPosts = result;
+      setPosts(result);
+      setLoading(false);
+    })();
 
     return () => {
       cancelled = true;
