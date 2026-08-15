@@ -224,6 +224,28 @@ export async function getPostsByUserIds(userIds: string[]): Promise<Post[]> {
   return attachAuthorProfiles(await attachEngagement((data ?? []).map(rowToPost)));
 }
 
+/** Posts matching any of the given ids, in no particular order — used to
+ *  batch-load post previews for a list of items that each reference one post
+ *  (e.g. notification rows), never one query per item. Returns [] immediately,
+ *  with no query at all, for an empty input. */
+export async function getPostsByIds(postIds: number[]): Promise<Post[]> {
+  if (postIds.length === 0) return [];
+
+  if (!isSupabaseConfigured) {
+    warnIfNotConfigured();
+    return [];
+  }
+
+  const { data, error } = await supabase.from("posts").select(POST_COLUMNS).in("id", postIds);
+
+  if (error) {
+    console.error("Failed to batch-load posts from Supabase:", error.message);
+    return [];
+  }
+
+  return attachAuthorProfiles(await attachEngagement((data ?? []).map(rowToPost)));
+}
+
 export async function getPostById(id: number): Promise<Post | undefined> {
   if (!isSupabaseConfigured) {
     warnIfNotConfigured();

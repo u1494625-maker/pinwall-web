@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import AddPostActionSheet, { type AddPostChoice } from "./add/AddPostActionSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import {
+  getCurrentlyOpenConversationId,
+  hasNewMessagesSinceLastOpen,
+  setHasUnseenMessages,
+  subscribeToIncomingMessages,
+  useHasUnseenMessages,
+} from "@/lib/messages";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -41,13 +48,46 @@ export default function BottomNav() {
   const { user } = useAuth();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const isHydrated = useSyncExternalStore(subscribeNever, getIsHydrated, getIsHydratedServerSnapshot);
+  const hasUnseenMessages = useHasUnseenMessages();
+
+  // Deliberately runs before the pathname-based early return below (hooks
+  // must always run in the same order) — this component stays mounted on
+  // every route even when it renders null, which is exactly what's needed
+  // here: a message in a different conversation must still light the dot
+  // while the user is inside /messages/[conversationId] itself, where
+  // BottomNav is hidden. One-time fetch for the initial state, then a
+  // single long-lived Realtime subscription — no polling.
+  useEffect(() => {
+    if (!user) return;
+    const myId = user.id;
+    let cancelled = false;
+
+    hasNewMessagesSinceLastOpen().then((result) => {
+      if (!cancelled) setHasUnseenMessages(result);
+    });
+
+    const unsubscribe = subscribeToIncomingMessages((message) => {
+      if (message.senderUserId === myId) return;
+      // The exact conversation currently on screen is already being shown
+      // and marked read live by ConversationScreen — don't also light the
+      // dot for it.
+      if (message.conversationId === getCurrentlyOpenConversationId()) return;
+      setHasUnseenMessages(true);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [user]);
 
   if (
     pathname === "/search" ||
     pathname.startsWith("/post/") ||
     pathname.startsWith("/add") ||
     pathname.startsWith("/profile/") ||
-    pathname.startsWith("/me/edit")
+    pathname.startsWith("/me/edit") ||
+    pathname.startsWith("/messages/")
   ) {
     return null;
   }
@@ -68,6 +108,7 @@ export default function BottomNav() {
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const isAddButton = item.href === "/add";
+          const isMessagesButton = item.href === "/messages";
 
           const content = isAddButton ? (
             <span
@@ -75,6 +116,18 @@ export default function BottomNav() {
               className="grid size-12 place-items-center rounded-full bg-orange-500 text-2xl text-white shadow-lg shadow-orange-200"
             >
               {item.icon}
+            </span>
+          ) : isMessagesButton ? (
+            // No isHydrated gate needed here (unlike the Add button below) —
+            // hasUnseenMessages starts false on both the server and the
+            // first client render (useSyncExternalStore's server snapshot),
+            // so there's no hydration mismatch to guard against; it only
+            // ever flips true later, from a real client-side effect.
+            <span className="relative inline-block">
+              {item.label}
+              {hasUnseenMessages ? (
+                <span aria-hidden="true" className="absolute -right-2 -top-0.5 size-2 rounded-full bg-red-500" />
+              ) : null}
             </span>
           ) : (
             item.label

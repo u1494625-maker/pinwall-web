@@ -86,6 +86,25 @@ export async function getCommentsForPost(postId: number): Promise<Comment[]> {
   return attachCommentAuthorProfiles((data ?? []).map(rowToComment));
 }
 
+/** Comments matching any of the given ids, keyed by id — used to batch-load
+ *  comment bodies for a list of items that each reference one comment (e.g.
+ *  comment notification rows), never one query per item. Returns an empty
+ *  Map immediately, with no query at all, for an empty input. */
+export async function getCommentsByIds(commentIds: number[]): Promise<Map<number, Comment>> {
+  const uniqueIds = Array.from(new Set(commentIds));
+  if (uniqueIds.length === 0 || !isSupabaseConfigured) return new Map();
+
+  const { data, error } = await supabase.from("comments").select(COMMENT_COLUMNS).in("id", uniqueIds);
+
+  if (error) {
+    console.error("Failed to batch-load comments from Supabase:", error.message);
+    return new Map();
+  }
+
+  const comments = await attachCommentAuthorProfiles((data ?? []).map(rowToComment));
+  return new Map(comments.map((comment) => [comment.id, comment]));
+}
+
 /** Inserts a comment as `userId`, then resolves its author's current profile
  *  for the returned Comment — identity is never supplied by the caller, only
  *  resolved from `userId` (via profiles). RLS verifies `userId` against

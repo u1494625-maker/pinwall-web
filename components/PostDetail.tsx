@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { addComment, deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
-import { getDisplayTitle } from "@/lib/postDisplay";
+import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPostsState } from "@/lib/posts";
 import type { Post, PostMedia } from "@/types/post";
 
@@ -21,20 +21,6 @@ type PostDetailProps = {
    *  which behaves exactly as before (opens on media[0]). */
   initialMediaId?: number;
 };
-
-function formatRelativeDate(iso: string): string {
-  const then = new Date(iso).getTime();
-  const diffMs = Date.now() - then;
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (diffMs < minute) return "Just now";
-  if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
-  if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
-  if (diffMs < 7 * day) return `${Math.floor(diffMs / day)}d ago`;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(then);
-}
 
 /** Avatar + name, linking to the author's public profile — real userId only,
  *  never derived from the display-only author string. Degrades to plain,

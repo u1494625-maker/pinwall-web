@@ -7,6 +7,7 @@ import PostCard from "@/components/PostCard";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { followUser, getProfileStats, unfollowUser, useIsFollowing, type ProfileStats } from "@/lib/interactions";
+import { getOrCreateConversation } from "@/lib/messages";
 import { getPostsByUserIds } from "@/lib/posts";
 import { getProfile, type Profile } from "@/lib/profiles";
 import type { Post } from "@/types/post";
@@ -37,6 +38,8 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
   // null means "no local action yet this session, trust the fetched query
   // value" — same optimistic-override pattern PostDetail uses for Follow.
   const [followOverride, setFollowOverride] = useState<boolean | null>(null);
+  const [isOpeningConversation, setIsOpeningConversation] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +93,24 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
     }
   }
 
+  async function handleMessage() {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
+    if (isOpeningConversation) return;
+
+    setMessageError(null);
+    setIsOpeningConversation(true);
+    try {
+      const conversationId = await getOrCreateConversation(userId);
+      router.push(`/messages/${conversationId}`);
+    } catch (err) {
+      setMessageError(err instanceof Error ? err.message : "Couldn't start a conversation.");
+      setIsOpeningConversation(false);
+    }
+  }
+
   if (profileLoading) {
     return <ProfileHeaderSkeleton />;
   }
@@ -127,24 +148,29 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
         </div>
 
         {!isOwnProfile ? (
-          <div className="flex gap-2.5 px-4 pt-4">
-            <button
-              type="button"
-              onClick={handleToggleFollow}
-              aria-pressed={isFollowing}
-              aria-label={isFollowing ? "Unfollow" : "Follow"}
-              className={`flex-1 rounded-xl py-2.5 text-sm font-bold ${
-                isFollowing ? "bg-stone-100 text-stone-500" : "bg-stone-900 text-white"
-              }`}
-            >
-              {isFollowing ? "Following" : "Follow"}
-            </button>
-            <Link
-              href={`/messages?to=${userId}`}
-              className="flex-1 rounded-xl bg-stone-100 py-2.5 text-center text-sm font-bold text-stone-600"
-            >
-              Message
-            </Link>
+          <div className="px-4 pt-4">
+            <div className="flex gap-2.5">
+              <button
+                type="button"
+                onClick={handleToggleFollow}
+                aria-pressed={isFollowing}
+                aria-label={isFollowing ? "Unfollow" : "Follow"}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-bold ${
+                  isFollowing ? "bg-stone-100 text-stone-500" : "bg-stone-900 text-white"
+                }`}
+              >
+                {isFollowing ? "Following" : "Follow"}
+              </button>
+              <button
+                type="button"
+                onClick={handleMessage}
+                disabled={isOpeningConversation}
+                className="flex-1 rounded-xl bg-stone-100 py-2.5 text-center text-sm font-bold text-stone-600 disabled:opacity-60"
+              >
+                {isOpeningConversation ? "Opening…" : "Message"}
+              </button>
+            </div>
+            {messageError ? <p className="mt-2 text-center text-xs font-semibold text-red-600">{messageError}</p> : null}
           </div>
         ) : null}
 

@@ -81,6 +81,32 @@ export async function getProfilesByUserIds(userIds: string[]): Promise<Map<strin
   return new Map((data ?? []).map((row) => [row.id, rowToProfile(row)]));
 }
 
+const SEARCH_RESULTS_LIMIT = 20;
+
+/** Real Pinwall users whose display name contains `query` (case-insensitive),
+ *  excluding `excludeUserId` (the searching user themselves) — used by the
+ *  New Message screen. Returns [] immediately, with no query at all, for a
+ *  blank search. */
+export async function searchProfiles(query: string, excludeUserId: string): Promise<Profile[]> {
+  const trimmed = query.trim();
+  if (trimmed.length === 0 || !isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(PROFILE_COLUMNS)
+    .ilike("display_name", `%${trimmed}%`)
+    .neq("id", excludeUserId)
+    .order("display_name", { ascending: true })
+    .limit(SEARCH_RESULTS_LIMIT);
+
+  if (error) {
+    console.error("Failed to search profiles from Supabase:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map(rowToProfile);
+}
+
 export type ProfileEditableFields = {
   displayName: string;
   bio: string | null;
