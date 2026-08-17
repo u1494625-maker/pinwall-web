@@ -6,6 +6,7 @@ import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getConversations, type Conversation } from "@/lib/messages";
 import { formatRelativeDate } from "@/lib/postDisplay";
+import { SYSTEM_CONVERSATION_ID } from "@/lib/systemMessages";
 
 function ConversationRowSkeleton() {
   return (
@@ -13,6 +14,25 @@ function ConversationRowSkeleton() {
       <div className="size-14 shrink-0 animate-pulse rounded-full bg-stone-200" />
       <div className="h-3.5 flex-1 animate-pulse rounded bg-stone-200" />
     </div>
+  );
+}
+
+/** Simple shield/checkmark glyph identifying the System Message row — never
+ *  a real user's avatar or initial, so it can't be mistaken for one. */
+function SystemMessageIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-6"
+    >
+      <path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5l-8-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
   );
 }
 
@@ -58,16 +78,24 @@ export default function ConversationList() {
 
   return (
     <div>
-      {conversations.map((conversation) => (
-        <Link key={conversation.id} href={`/messages/${conversation.id}`} className="flex items-center gap-3 px-4 py-3.5">
-          {conversation.otherAvatarUrl ? (
-            <DemoPhoto src={conversation.otherAvatarUrl} alt="" className="size-14 shrink-0 rounded-full" />
-          ) : (
-            <span className="grid size-14 shrink-0 place-items-center rounded-full bg-stone-200 text-lg font-black text-stone-600">
-              {conversation.otherDisplayName.charAt(0).toUpperCase()}
-            </span>
-          )}
-          <div className="min-w-0 flex-1">
+      {conversations.map((conversation) => {
+        const isSystem = conversation.id === SYSTEM_CONVERSATION_ID;
+        const href = isSystem ? "/messages/system" : `/messages/${conversation.id}`;
+
+        return (
+          <Link key={conversation.id} href={href} className="flex items-center gap-3 px-4 py-3.5">
+            {isSystem ? (
+              <span className="grid size-14 shrink-0 place-items-center rounded-full bg-stone-900 text-white">
+                <SystemMessageIcon />
+              </span>
+            ) : conversation.otherAvatarUrl ? (
+              <DemoPhoto src={conversation.otherAvatarUrl} alt="" className="size-14 shrink-0 rounded-full" />
+            ) : (
+              <span className="grid size-14 shrink-0 place-items-center rounded-full bg-stone-200 text-lg font-black text-stone-600">
+                {conversation.otherDisplayName.charAt(0).toUpperCase()}
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="truncate text-[15px] font-bold text-stone-900">{conversation.otherDisplayName}</h2>
               <time className="shrink-0 text-[11px] font-medium text-stone-400">
@@ -82,9 +110,10 @@ export default function ConversationList() {
                 </span>
               ) : null}
             </div>
-          </div>
-        </Link>
-      ))}
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }

@@ -1,0 +1,148 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { setCurrentlyOpenConversationId } from "@/lib/messages";
+import { formatRelativeDate } from "@/lib/postDisplay";
+import {
+  getSystemMessages,
+  markSystemMessagesRead,
+  subscribeToSystemMessages,
+  SYSTEM_CONVERSATION_ID,
+  type SystemMessage,
+} from "@/lib/systemMessages";
+import { useAuth } from "@/lib/auth/AuthProvider";
+
+function BackButton({ onBack }: { onBack: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      aria-label="Go back"
+      className="grid size-9 shrink-0 place-items-center rounded-full text-2xl leading-none text-stone-700"
+    >
+      ‹
+    </button>
+  );
+}
+
+/** Same glyph as ConversationList's System Message row, so the icon reads as
+ *  the same identity in both places. */
+function ShieldIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5"
+    >
+      <path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5l-8-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+}
+
+/**
+ * The System Message thread — a fixed, non-human conversation surfacing
+ * moderation-triggered notices (see remove_reported_content in
+ * supabase/system_messages.sql). Deliberately independent of
+ * ConversationScreen rather than a shared refactor: there's no participant
+ * to fetch, no sender/recipient distinction (every message is always
+ * "incoming"), and critically, no composer at all — a small, separate
+ * component keeps the working human-DM screen completely untouched.
+ */
+export default function SystemMessageScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const [messages, setMessages] = useState<SystemMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const scrollEndRef = useRef<HTMLDivElement>(null);
+  // Same dedup purpose as ConversationScreen's own ref: guards against a
+  // message that arrives both in the initial history load and, moments
+  // later, via the Realtime echo of that same insert.
+  const knownMessageIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    // Entering this screen immediately marks the whole thread read — no
+    // scroll-to-bottom requirement — exactly parallel to ConversationScreen
+    // marking a human conversation read on open.
+    Promise.all([getSystemMessages(), markSystemMessagesRead()]).then(([history]) => {
+      if (cancelled) return;
+      history.forEach((message) => knownMessageIdsRef.current.add(message.id));
+      setMessages(history);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // Lets BottomNav's system-message subscription know not to light the dot
+  // while this thread is the one on screen — same sentinel/mechanism
+  // ConversationScreen already uses for a human conversation id.
+  useEffect(() => {
+    setCurrentlyOpenConversationId(SYSTEM_CONVERSATION_ID);
+    return () => setCurrentlyOpenConversationId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = subscribeToSystemMessages(user.id, (message) => {
+      if (knownMessageIdsRef.current.has(message.id)) return;
+      knownMessageIdsRef.current.add(message.id);
+      setMessages((prev) => [...prev, message]);
+      markSystemMessagesRead();
+    });
+
+    return unsubscribe;
+  }, [user]);
+
+  useEffect(() => {
+    scrollEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length]);
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#fbfaf7] shadow-[0_0_50px_rgba(50,40,30,0.08)]">
+      <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-100 bg-[#fbfaf7]/95 px-4 py-3 backdrop-blur">
+        <BackButton onBack={() => router.back()} />
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-stone-900 text-white">
+          <ShieldIcon />
+        </span>
+        <span className="truncate text-sm font-black text-stone-900">System Message</span>
+      </div>
+
+      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {loading ? (
+          <div className="space-y-3">
+            {[0, 1, 2].map((key) => (
+              <div key={key} className="h-8 w-2/3 animate-pulse rounded-2xl bg-stone-200" />
+            ))}
+          </div>
+        ) : messages.length === 0 ? (
+          <p className="py-16 text-center text-sm text-stone-400">No messages yet.</p>
+        ) : (
+          messages.map((message) => (
+            <div key={message.id} className="flex justify-start">
+              <div className="max-w-[80%]">
+                <div className="whitespace-pre-line rounded-2xl bg-white px-3.5 py-2 text-sm text-stone-900 shadow-sm">
+                  {message.body}
+                </div>
+                <p className="mt-1 text-left text-[10px] text-stone-400">{formatRelativeDate(message.createdAt)}</p>
+              </div>
+            </div>
+          ))
+        )}
+        <div ref={scrollEndRef} />
+      </div>
+    </main>
+  );
+}

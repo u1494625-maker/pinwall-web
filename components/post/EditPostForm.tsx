@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import ComposerBottomBar from "@/components/add/ComposerBottomBar";
 import ComposerTopBar from "@/components/add/ComposerTopBar";
 import PostLocationFields from "@/components/add/PostLocationFields";
@@ -11,7 +11,7 @@ import TitleField from "@/components/add/TitleField";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
-import { updatePost, useAllPostsState } from "@/lib/posts";
+import { getPostById, updatePost } from "@/lib/posts";
 import type { Post } from "@/types/post";
 
 type EditPostFormProps = {
@@ -26,8 +26,38 @@ type EditPostFormProps = {
  */
 export default function EditPostForm({ postId }: EditPostFormProps) {
   const { user } = useAuth();
-  const { posts, loading } = useAllPostsState();
-  const post = posts.find((candidate) => candidate.id === postId);
+  // A dedicated, fresh, per-id fetch — not the shared cross-page
+  // cachedAllPosts cache — for the same reason PostDetail.tsx uses one: a
+  // removed post must be unreachable here immediately, not just once some
+  // other page's shared cache happens to refetch. See PostDetail.tsx for the
+  // full reasoning.
+  const [post, setPost] = useState<Post | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load(id: number) {
+      if (!Number.isFinite(id)) {
+        setPost(undefined);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      const result = await getPostById(id);
+      if (!cancelled) {
+        setPost(result);
+        setLoading(false);
+      }
+    }
+
+    load(postId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId]);
 
   if (loading) {
     return <main className="min-h-screen bg-[#fbfaf7]" />;

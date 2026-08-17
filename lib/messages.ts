@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds } from "@/lib/profiles";
+import { getSystemMessageSummary, SYSTEM_CONVERSATION_ID } from "@/lib/systemMessages";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 
 /** Mirrors the check constraint in supabase/messaging.sql. */
@@ -9,10 +10,13 @@ export const MAX_MESSAGE_LENGTH = 2000;
 
 export type Conversation = {
   id: number;
-  otherUserId: string;
+  /** Absent only for the synthetic System Message row (id ===
+   *  SYSTEM_CONVERSATION_ID) — there is no real other participant to name. */
+  otherUserId?: string;
   /** Current profile identity for the other participant, resolved via
    *  otherUserId -> profiles — never a stored snapshot, same convention as
-   *  post/comment authorship elsewhere in this app. */
+   *  post/comment authorship elsewhere in this app. For the System Message
+   *  row this is always the literal string "System Message" instead. */
   otherDisplayName: string;
   otherAvatarUrl?: string;
   lastMessageAt: string;
@@ -91,6 +95,13 @@ export async function getOrCreateConversation(otherUserId: string): Promise<numb
  * supabase/messaging.sql). The other participant's current identity is
  * batch-resolved via the existing getProfilesByUserIds, never one query per
  * row and never a stored name/avatar snapshot.
+ *
+ * Also merges in a single synthetic "System Message" row (id ===
+ * SYSTEM_CONVERSATION_ID) when the caller has ever received one — see
+ * lib/systemMessages.ts's getSystemMessageSummary(). This is the one place
+ * human and system activity are combined into the single sorted list
+ * ConversationList renders; System Message participates in that same
+ * newest-activity-first ordering like any other row.
  */
 export async function getConversations(): Promise<Conversation[]> {
   if (!isSupabaseConfigured) return [];
@@ -103,11 +114,9 @@ export async function getConversations(): Promise<Conversation[]> {
   }
 
   const rows = (data ?? []) as ConversationRow[];
-  if (rows.length === 0) return [];
-
   const profilesByUserId = await getProfilesByUserIds(rows.map((row) => row.other_user_id));
 
-  return rows.map((row) => {
+  const conversations: Conversation[] = rows.map((row) => {
     const profile = profilesByUserId.get(row.other_user_id);
     return {
       id: row.id,
@@ -121,6 +130,19 @@ export async function getConversations(): Promise<Conversation[]> {
       unreadCount: row.unread_count,
     };
   });
+
+  const systemSummary = await getSystemMessageSummary();
+  if (systemSummary) {
+    conversations.push({
+      id: SYSTEM_CONVERSATION_ID,
+      otherDisplayName: "System Message",
+      lastMessageAt: systemSummary.lastMessageAt,
+      lastMessageBody: systemSummary.lastMessageBody,
+      unreadCount: systemSummary.unreadCount,
+    });
+  }
+
+  return conversations.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
 }
 
 /** snake_case shape of a `conversations` row's two participant columns. */
@@ -356,10 +378,16 @@ export function useHasUnseenMessages(): boolean {
 // live by the open ConversationScreen). Plain mutable state, not a
 // useSyncExternalStore value: nothing ever needs to re-render off of this by
 // itself, it's only ever read at the moment a Realtime event arrives.
+//
+// Also reused, unchanged, for the System Message thread: SystemMessageScreen
+// sets this to SYSTEM_CONVERSATION_ID on mount/unmount, letting BottomNav's
+// system-message subscription apply the exact same suppression check rather
+// than inventing a second "currently open" concept.
 let currentlyOpenConversationId: number | null = null;
 
-/** Called by ConversationScreen on mount/unmount — never call this from
- *  anywhere else. */
+/** Called by ConversationScreen (and SystemMessageScreen, with
+ *  SYSTEM_CONVERSATION_ID) on mount/unmount — never call this from anywhere
+ *  else. */
 export function setCurrentlyOpenConversationId(conversationId: number | null) {
   currentlyOpenConversationId = conversationId;
 }

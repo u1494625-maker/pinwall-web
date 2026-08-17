@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import PostMediaGallery from "@/components/PostMediaGallery";
+import CommentThread from "@/components/post/CommentThread";
 import PostManageSheet from "@/components/post/PostManageSheet";
+import ReportModal from "@/components/post/ReportModal";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { addComment, deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
+import { deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
-import { useAllPostsState } from "@/lib/posts";
+import { getPostById } from "@/lib/posts";
+import { reportComment, reportPost } from "@/lib/reports";
 import type { Post, PostMedia } from "@/types/post";
 
 type PostDetailProps = {
@@ -125,8 +128,8 @@ function SaveIcon({ filled = false }: { filled?: boolean }) {
   );
 }
 
-/** Outlined trash can — delete a comment. */
-function DeleteIcon() {
+/** Outlined flag — report a post/comment. */
+function FlagIcon({ className = "size-5" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -135,11 +138,10 @@ function DeleteIcon() {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-4"
+      className={className}
     >
-      <path d="M4 7h16" />
-      <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
-      <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+      <path d="M5 21V4" />
+      <path d="M5 4h13l-3 4.5L18 13H5" />
     </svg>
   );
 }
@@ -189,8 +191,55 @@ function PostDetailSkeleton() {
 export default function PostDetail({ postId, initialMediaId }: PostDetailProps) {
   const router = useRouter();
   const { user, signInWithGoogle } = useAuth();
-  const { posts, loading } = useAllPostsState();
-  const post = posts.find((candidate) => candidate.id === postId);
+  // A dedicated, fresh, per-id fetch — never the shared cross-page
+  // cachedAllPosts cache (see useAllPostsState in lib/posts.ts). That cache
+  // is fetched once per Home/Map/Search mount and shared app-wide; reading
+  // "does this exact post still exist for me" from it meant an already-warm
+  // tab could keep showing a post an admin had since removed, since RLS's
+  // moderation_status filter only ever applied the next time that shared
+  // cache happened to refetch, not the moment this specific page opened.
+  // getPostById issues its own RLS-governed query on every mount/id change,
+  // so a removed post is excluded immediately, every time, including for its
+  // own author — while an admin's bypass policy still applies exactly as it
+  // does for every other posts read.
+  const [fetchedPost, setFetchedPost] = useState<Post | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load(id: number) {
+      // An invalid route param (e.g. /post/not-a-number) is treated the same
+      // as a real id that doesn't resolve to anything — never sent to
+      // Supabase, matching ConversationScreen's identical guard.
+      if (!Number.isFinite(id)) {
+        setFetchedPost(undefined);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      const result = await getPostById(id);
+      if (!cancelled) {
+        setFetchedPost(result);
+        setLoading(false);
+      }
+    }
+
+    load(postId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId]);
+
+  // Reporting this post immediately makes it behave as if it were already
+  // gone for this viewer — the same "not found" state a genuinely deleted
+  // post already produces — without waiting for a refetch. This matches
+  // exactly what a refresh would show anyway, since the RLS policy no
+  // longer returns this post to its reporter.
+  const [locallyReportedPostId, setLocallyReportedPostId] = useState<number | null>(null);
+  const post = postId === locallyReportedPostId ? undefined : fetchedPost;
   const { isFollowing: isFollowingFromQuery } = useIsFollowing(post?.userId);
   const commentsSectionRef = useRef<HTMLDivElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
@@ -213,9 +262,16 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
   const [followOverride, setFollowOverride] = useState<boolean | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(true);
-  const [commentInput, setCommentInput] = useState("");
-  const [isPostingComment, setIsPostingComment] = useState(false);
   const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
+  // What ReportModal is currently open for — meaningless while
+  // reportModalOpen is false, so its initial value doesn't matter.
+  const [reportTarget, setReportTarget] = useState<{ type: "post" } | { type: "comment"; commentId: number }>({
+    type: "post",
+  });
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  // Bumped only when opening, same convention as manageSheetKey above — the
+  // modal remounts with fresh internal state each time.
+  const [reportModalKey, setReportModalKey] = useState(0);
 
   useEffect(() => {
     const currentPostId = post?.id;
@@ -245,13 +301,26 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
 
   if (!post) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center bg-[#fbfaf7] px-8 text-center">
-        <h1 className="text-lg font-black">Post not found</h1>
-        <p className="mt-2 text-sm text-stone-500">It may have been removed.</p>
-        <Link href="/" className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white">
-          Back to Explore
-        </Link>
-      </main>
+      <>
+        {/* Rendered here too (identical to the block further down) so
+            "Report submitted" is still visible for the instant this post
+            transitions into its own "not found" state right after being
+            reported — that branch below never mounts once post is gone. */}
+        {shareFeedback ? (
+          <div className="pointer-events-none fixed inset-x-0 top-16 z-30 flex justify-center">
+            <span className="rounded-full bg-stone-900 px-3 py-1.5 text-[11px] font-bold text-white shadow-lg">
+              {shareFeedback}
+            </span>
+          </div>
+        ) : null}
+        <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center bg-[#fbfaf7] px-8 text-center">
+          <h1 className="text-lg font-black">Post not found</h1>
+          <p className="mt-2 text-sm text-stone-500">It may have been removed.</p>
+          <Link href="/" className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white">
+            Back to Explore
+          </Link>
+        </main>
+      </>
     );
   }
 
@@ -332,31 +401,20 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
     commentInputRef.current?.focus();
   }
 
-  async function handleSubmitComment() {
-    if (!user) {
-      void signInWithGoogle();
-      return;
-    }
-    if (!post) return;
-    const trimmed = commentInput.trim();
-    if (!trimmed || isPostingComment) return;
-
-    setIsPostingComment(true);
-    try {
-      const newComment = await addComment(post.id, user.id, trimmed);
-      setComments((prev) => [...prev, newComment]);
-      setCommentInput("");
-    } catch {
-      // Leave the typed text in place so the user can retry.
-    } finally {
-      setIsPostingComment(false);
-    }
-  }
-
+  // Deleting a top-level comment cascades to its replies at the database
+  // level (parent_comment_id ... on delete cascade — see
+  // supabase/comment_replies.sql); this mirrors that same cascade in the
+  // locally-held list so replies don't linger as orphaned rows until a
+  // refetch. Deleting a reply only ever removes that one row either way —
+  // nothing else can have a reply's id as its own parentCommentId.
   async function handleDeleteComment(commentId: number) {
     const previous = comments;
+    const target = comments.find((comment) => comment.id === commentId);
+    const isTopLevel = target?.parentCommentId === null;
     setDeletingCommentId(commentId);
-    setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+    setComments((prev) =>
+      prev.filter((comment) => comment.id !== commentId && !(isTopLevel && comment.parentCommentId === commentId)),
+    );
     try {
       await deleteComment(commentId);
     } catch {
@@ -364,6 +422,38 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
     } finally {
       setDeletingCommentId(null);
     }
+  }
+
+  function openReportModal(target: { type: "post" } | { type: "comment"; commentId: number }) {
+    if (!user) {
+      void signInWithGoogle();
+      return;
+    }
+    setReportTarget(target);
+    setReportModalKey((key) => key + 1);
+    setReportModalOpen(true);
+  }
+
+  // Passed to ReportModal as onSubmit — it awaits this, closes itself on
+  // success, and shows its own error state if this throws. The actual
+  // "hide it" work happens here: for a post, flip the local flag that makes
+  // the existing "Post not found" branch take over; for a comment, filter it
+  // out of the already-loaded list exactly like handleDeleteComment does.
+  // Neither the post nor the comment is deleted or changed for anyone else —
+  // this is purely local state for the current viewer, backed by the real
+  // server-side hide that RLS applies on every future read.
+  async function handleSubmitReport(reason: string) {
+    if (reportTarget.type === "post") {
+      if (!post) return;
+      await reportPost(post.id, reason);
+      setLocallyReportedPostId(post.id);
+    } else {
+      await reportComment(reportTarget.commentId, reason);
+      const reportedCommentId = reportTarget.commentId;
+      setComments((prev) => prev.filter((comment) => comment.id !== reportedCommentId));
+    }
+    setShareFeedback("Report submitted");
+    setTimeout(() => setShareFeedback(null), 2000);
   }
 
   async function handleShare() {
@@ -475,66 +565,18 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
         <div ref={commentsSectionRef} className="mt-6 border-t border-stone-200 pt-5">
           <h2 className="text-sm font-black text-stone-900">Comments</h2>
 
-          {commentsLoading ? (
-            <p className="mt-4 text-center text-xs text-stone-400">Loading comments…</p>
-          ) : comments.length === 0 ? (
-            <p className="mt-4 text-center text-xs text-stone-400">Be the first to comment.</p>
-          ) : (
-            <ul className="mt-4 space-y-4">
-              {comments.map((comment) => (
-                <li key={comment.id} className="flex items-start gap-2.5">
-                  {comment.authorAvatarUrl ? (
-                    <DemoPhoto src={comment.authorAvatarUrl} alt="" className="size-8 shrink-0 rounded-full" />
-                  ) : (
-                    <span className="grid size-8 shrink-0 place-items-center rounded-full bg-stone-200 text-xs font-black text-stone-600">
-                      {comment.authorDisplayName.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-stone-900">{comment.authorDisplayName}</p>
-                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-stone-700">{comment.body}</p>
-                    <p className="mt-1 text-[11px] text-stone-400">{formatRelativeDate(comment.createdAt)}</p>
-                  </div>
-                  {user && user.id === comment.userId ? (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteComment(comment.id)}
-                      disabled={deletingCommentId === comment.id}
-                      aria-label="Delete comment"
-                      className="shrink-0 rounded-full p-1.5 text-stone-400 disabled:opacity-50"
-                    >
-                      <DeleteIcon />
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleSubmitComment();
-            }}
-            className="mt-4 flex items-center gap-2"
-          >
-            <input
-              ref={commentInputRef}
-              type="text"
-              value={commentInput}
-              onChange={(event) => setCommentInput(event.target.value)}
-              placeholder={user ? "Add a comment…" : "Sign in to comment"}
-              aria-label="Add a comment"
-              className="flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
-            />
-            <button
-              type="submit"
-              disabled={isPostingComment || (Boolean(user) && !commentInput.trim())}
-              className="shrink-0 rounded-full bg-stone-900 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
-            >
-              Send
-            </button>
-          </form>
+          <CommentThread
+            postId={post.id}
+            comments={comments}
+            commentsLoading={commentsLoading}
+            currentUserId={user?.id}
+            onRequireSignIn={() => void signInWithGoogle()}
+            onCommentAdded={(comment) => setComments((prev) => [...prev, comment])}
+            onDeleteComment={handleDeleteComment}
+            deletingCommentId={deletingCommentId}
+            onReportComment={(commentId) => openReportModal({ type: "comment", commentId })}
+            commentInputRef={commentInputRef}
+          />
         </div>
 
       </div>
@@ -612,7 +654,26 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
           <CommentIcon />
           {displayedCommentCount}
         </button>
+
+        {!isOwner ? (
+          <button
+            type="button"
+            onClick={() => openReportModal({ type: "post" })}
+            aria-label="Report post"
+            className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
+          >
+            <FlagIcon />
+          </button>
+        ) : null}
       </div>
+
+      <ReportModal
+        key={reportModalKey}
+        open={reportModalOpen}
+        targetLabel={reportTarget.type}
+        onClose={() => setReportModalOpen(false)}
+        onSubmit={handleSubmitReport}
+      />
     </main>
   );
 }

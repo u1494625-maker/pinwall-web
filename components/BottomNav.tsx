@@ -12,6 +12,7 @@ import {
   subscribeToIncomingMessages,
   useHasUnseenMessages,
 } from "@/lib/messages";
+import { subscribeToIncomingSystemMessages, SYSTEM_CONVERSATION_ID } from "@/lib/systemMessages";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -55,8 +56,11 @@ export default function BottomNav() {
   // every route even when it renders null, which is exactly what's needed
   // here: a message in a different conversation must still light the dot
   // while the user is inside /messages/[conversationId] itself, where
-  // BottomNav is hidden. One-time fetch for the initial state, then a
-  // single long-lived Realtime subscription — no polling.
+  // BottomNav is hidden. One-time fetch for the initial state, then two
+  // long-lived Realtime subscriptions (human DMs, system messages) — no
+  // polling. hasNewMessagesSinceLastOpen() already accounts for both
+  // sources against the same message_inbox_state.last_opened_at (see
+  // supabase/system_messages.sql), so only one initial fetch is needed.
   useEffect(() => {
     if (!user) return;
     const myId = user.id;
@@ -66,7 +70,7 @@ export default function BottomNav() {
       if (!cancelled) setHasUnseenMessages(result);
     });
 
-    const unsubscribe = subscribeToIncomingMessages((message) => {
+    const unsubscribeMessages = subscribeToIncomingMessages((message) => {
       if (message.senderUserId === myId) return;
       // The exact conversation currently on screen is already being shown
       // and marked read live by ConversationScreen — don't also light the
@@ -75,9 +79,19 @@ export default function BottomNav() {
       setHasUnseenMessages(true);
     });
 
+    const unsubscribeSystemMessages = subscribeToIncomingSystemMessages(myId, () => {
+      // Every event this subscription delivers is, by construction, a
+      // message addressed to this user — no sender to exclude, unlike the
+      // human-DM case above. Same suppression sentinel as ConversationScreen
+      // uses, just for the System Message thread's reserved id.
+      if (getCurrentlyOpenConversationId() === SYSTEM_CONVERSATION_ID) return;
+      setHasUnseenMessages(true);
+    });
+
     return () => {
       cancelled = true;
-      unsubscribe();
+      unsubscribeMessages();
+      unsubscribeSystemMessages();
     };
   }, [user]);
 
@@ -87,7 +101,8 @@ export default function BottomNav() {
     pathname.startsWith("/add") ||
     pathname.startsWith("/profile/") ||
     pathname.startsWith("/me/edit") ||
-    pathname.startsWith("/messages/")
+    pathname.startsWith("/messages/") ||
+    pathname.startsWith("/admin")
   ) {
     return null;
   }
