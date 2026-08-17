@@ -12,6 +12,13 @@ import {
   subscribeToIncomingMessages,
   useHasUnseenMessages,
 } from "@/lib/messages";
+import {
+  getUnreadNotificationCounts,
+  setUnseenNotificationCategoriesFromCounts,
+  setUnseenNotificationCategory,
+  subscribeToIncomingNotifications,
+  useHasUnseenNotifications,
+} from "@/lib/notifications";
 import { subscribeToIncomingSystemMessages, SYSTEM_CONVERSATION_ID } from "@/lib/systemMessages";
 
 const navItems = [
@@ -50,17 +57,22 @@ export default function BottomNav() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const isHydrated = useSyncExternalStore(subscribeNever, getIsHydrated, getIsHydratedServerSnapshot);
   const hasUnseenMessages = useHasUnseenMessages();
+  const hasUnseenNotifications = useHasUnseenNotifications();
 
   // Deliberately runs before the pathname-based early return below (hooks
   // must always run in the same order) — this component stays mounted on
   // every route even when it renders null, which is exactly what's needed
   // here: a message in a different conversation must still light the dot
   // while the user is inside /messages/[conversationId] itself, where
-  // BottomNav is hidden. One-time fetch for the initial state, then two
-  // long-lived Realtime subscriptions (human DMs, system messages) — no
-  // polling. hasNewMessagesSinceLastOpen() already accounts for both
-  // sources against the same message_inbox_state.last_opened_at (see
-  // supabase/system_messages.sql), so only one initial fetch is needed.
+  // BottomNav is hidden. One-time fetch for the initial state, then three
+  // long-lived Realtime subscriptions (human DMs, system messages,
+  // notifications) — no polling. hasNewMessagesSinceLastOpen() already
+  // accounts for both DM/System sources against the same
+  // message_inbox_state.last_opened_at (see supabase/system_messages.sql);
+  // getUnreadNotificationCounts() is the separate, independent initial value
+  // for the Likes/Followers/Comments portion of the dot (see
+  // lib/notifications.ts — a deliberately separate store, never merged into
+  // hasUnseenMessages, so clearing one can never clobber the other).
   useEffect(() => {
     if (!user) return;
     const myId = user.id;
@@ -68,6 +80,10 @@ export default function BottomNav() {
 
     hasNewMessagesSinceLastOpen().then((result) => {
       if (!cancelled) setHasUnseenMessages(result);
+    });
+
+    getUnreadNotificationCounts().then((counts) => {
+      if (!cancelled) setUnseenNotificationCategoriesFromCounts(counts);
     });
 
     const unsubscribeMessages = subscribeToIncomingMessages((message) => {
@@ -88,10 +104,18 @@ export default function BottomNav() {
       setHasUnseenMessages(true);
     });
 
+    // One subscription, not three — the single handler branches on the
+    // inserted row's own type. No self-exclusion needed here: the database
+    // never creates a notification where the actor is also the recipient.
+    const unsubscribeNotifications = subscribeToIncomingNotifications(myId, (notification) => {
+      setUnseenNotificationCategory(notification.type, true);
+    });
+
     return () => {
       cancelled = true;
       unsubscribeMessages();
       unsubscribeSystemMessages();
+      unsubscribeNotifications();
     };
   }, [user]);
 
@@ -140,7 +164,7 @@ export default function BottomNav() {
             // ever flips true later, from a real client-side effect.
             <span className="relative inline-block">
               {item.label}
-              {hasUnseenMessages ? (
+              {hasUnseenMessages || hasUnseenNotifications ? (
                 <span aria-hidden="true" className="absolute -right-2 -top-0.5 size-2 rounded-full bg-red-500" />
               ) : null}
             </span>

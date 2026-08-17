@@ -1,12 +1,16 @@
 "use client";
 
-import { getCommentsByIds } from "@/lib/comments";
-import { getPostsByIds } from "@/lib/posts";
-import { getDisplayTitle } from "@/lib/postDisplay";
-import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds } from "@/lib/profiles";
+import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds, type Profile } from "@/lib/profiles";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 
-export type PendingReport = {
+/** Fields common to a pending report and a reviewed (dismissed/actioned)
+ *  report — everything sourced directly from the admin-checked RPCs
+ *  (get_pending_reports_for_admin / get_reviewed_reports_for_admin), never
+ *  from a live posts/comments read. The moderation tool has zero dependency
+ *  on ordinary posts/comments RLS as of Phase 5E — every field below,
+ *  including contentPreview/contentAuthorUserId/parentPostId, comes straight
+ *  off the RPC row. */
+type ModerationReportBase = {
   id: number;
   targetType: "post" | "comment";
   /** Raw target identifiers — kept (not just parentPostId below) so the
@@ -16,26 +20,45 @@ export type PendingReport = {
    *  locally, not just the one that was clicked. */
   targetPostId: number | null;
   targetCommentId: number | null;
-  reason: string | null;
-  createdAt: string;
   reporterUserId: string;
   reporterDisplayName: string;
   reporterAvatarUrl?: string;
-  /** Undefined only for a pre-auth ownerless post — never a real user with
-   *  no identity, since a comment always has a real author. */
+  reason: string | null;
+  createdAt: string;
+  /** Undefined when the content's author is unknown — an ownerless legacy
+   *  post/comment, or (for a reviewed report) an author whose account has
+   *  since been deleted (target_author_user_id goes null via `on delete set
+   *  null`; see supabase/moderation_history.sql). */
   contentAuthorUserId?: string;
   contentAuthorDisplayName: string;
   contentAuthorAvatarUrl?: string;
-  /** Short text preview — a post's display title, or a comment's body. */
+  /** Short text preview, computed once server-side by
+   *  compute_moderation_content_preview — never derived client-side, and
+   *  durable even if the target is later removed or hard-deleted. */
   contentPreview: string;
-  /** The post to link to for full context — the report's own target_post_id
-   *  for a post report, or the comment's parent post for a comment report
-   *  (comments have no standalone page). */
+  /** The post to link to for "View" — the report's own target_post_id for a
+   *  post report, or the reported comment's parent post id for a comment
+   *  report (comments have no standalone page). Server-computed
+   *  (content_post_id) at the moment the report was created/reviewed, so it
+   *  keeps working even if the specific comment is later hard-deleted, as
+   *  long as its parent post survives. */
   parentPostId: number;
 };
 
-/** snake_case shape of a get_pending_reports_for_admin() row. */
-type PendingReportRow = {
+export type PendingReport = ModerationReportBase;
+
+export type ReviewedReport = ModerationReportBase & {
+  status: "dismissed" | "actioned";
+  reviewedAt: string;
+  /** Null only if the reviewing admin's account was later deleted
+   *  (reviewed_by_user_id `on delete set null`) — the row itself survives. */
+  reviewedByUserId: string | null;
+  reviewedByDisplayName: string;
+  reviewedByAvatarUrl?: string;
+};
+
+/** snake_case shape shared by both admin RPCs' common columns. */
+type ModerationReportRow = {
   report_id: number;
   target_type: "post" | "comment";
   target_post_id: number | null;
@@ -43,6 +66,16 @@ type PendingReportRow = {
   reporter_user_id: string;
   reason: string | null;
   created_at: string;
+  content_preview: string;
+  target_author_user_id: string | null;
+  content_post_id: number;
+};
+
+/** snake_case shape of a get_reviewed_reports_for_admin() row. */
+type ReviewedReportRow = ModerationReportRow & {
+  status: "dismissed" | "actioned";
+  reviewed_at: string;
+  reviewed_by_user_id: string | null;
 };
 
 /** Real, one-time check of whether the signed-in user is an admin — a UX
@@ -63,15 +96,39 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
   return Boolean(data);
 }
 
+/** Shared reporter/author hydration for both report kinds — reads only from
+ *  the already-batch-loaded profiles map, never issues its own query. */
+function toModerationReportBase(row: ModerationReportRow, profilesByUserId: Map<string, Profile>): ModerationReportBase {
+  const reporterProfile = profilesByUserId.get(row.reporter_user_id);
+  const authorProfile = row.target_author_user_id ? profilesByUserId.get(row.target_author_user_id) : undefined;
+
+  return {
+    id: row.report_id,
+    targetType: row.target_type,
+    targetPostId: row.target_post_id,
+    targetCommentId: row.target_comment_id,
+    reporterUserId: row.reporter_user_id,
+    reporterDisplayName: reporterProfile?.displayName ?? FALLBACK_DISPLAY_NAME,
+    reporterAvatarUrl: reporterProfile?.avatarUrl ?? undefined,
+    reason: row.reason,
+    createdAt: row.created_at,
+    contentAuthorUserId: row.target_author_user_id ?? undefined,
+    contentAuthorDisplayName: authorProfile?.displayName ?? FALLBACK_DISPLAY_NAME,
+    contentAuthorAvatarUrl: authorProfile?.avatarUrl ?? undefined,
+    contentPreview: row.content_preview,
+    parentPostId: row.content_post_id,
+  };
+}
+
 /**
  * Every pending report, newest first, fully hydrated with current reporter
- * and content-author identity plus a short content preview — via
- * get_pending_reports_for_admin() (which itself rejects a non-admin caller
- * server-side) followed by the exact same batched helpers every other list
- * in this app uses (getPostsByIds, getCommentsByIds, getProfilesByUserIds).
- * These work correctly here for removed/reporter-hidden content specifically
- * because of the admin-bypass posts/comments RLS policies added alongside
- * this RPC — no separate admin-only fetching path was built.
+ * and content-author identity — via get_pending_reports_for_admin (itself
+ * rejecting a non-admin caller server-side), which as of Phase 5E already
+ * returns content_preview/target_author_user_id/content_post_id directly,
+ * computed server-side by the same admin-checked, security-definer helper
+ * reviewed reports use. The only follow-up call is one deduplicated
+ * getProfilesByUserIds — no getPostsByIds/getCommentsByIds, no dependency on
+ * ordinary posts/comments RLS anywhere in this function.
  */
 export async function getPendingReportsForAdmin(): Promise<PendingReport[]> {
   if (!isSupabaseConfigured) return [];
@@ -83,83 +140,61 @@ export async function getPendingReportsForAdmin(): Promise<PendingReport[]> {
     return [];
   }
 
-  const rows = (data ?? []) as PendingReportRow[];
+  const rows = (data ?? []) as ModerationReportRow[];
   if (rows.length === 0) return [];
 
-  const postIds = rows
-    .filter((row) => row.target_type === "post")
-    .map((row) => row.target_post_id)
-    .filter((id): id is number => id != null);
-  const commentIds = rows
-    .filter((row) => row.target_type === "comment")
-    .map((row) => row.target_comment_id)
-    .filter((id): id is number => id != null);
+  const userIds = new Set<string>();
+  rows.forEach((row) => {
+    userIds.add(row.reporter_user_id);
+    if (row.target_author_user_id) userIds.add(row.target_author_user_id);
+  });
 
-  const [posts, commentsById] = await Promise.all([getPostsByIds(postIds), getCommentsByIds(commentIds)]);
-  const postsById = new Map(posts.map((post) => [post.id, post]));
+  const profilesByUserId = await getProfilesByUserIds(Array.from(userIds));
 
-  // A comment report's parent post might not already be in postsById (no
-  // post report happened to reference it) — batch-fetch whichever parent
-  // posts are still missing, still one extra call regardless of how many
-  // comment reports there are, never one per report.
-  const missingParentPostIds = Array.from(
-    new Set(Array.from(commentsById.values()).map((comment) => comment.postId)),
-  ).filter((id) => !postsById.has(id));
-  if (missingParentPostIds.length > 0) {
-    const parentPosts = await getPostsByIds(missingParentPostIds);
-    parentPosts.forEach((post) => postsById.set(post.id, post));
+  return rows.map((row) => toModerationReportBase(row, profilesByUserId));
+}
+
+/**
+ * Every reviewed report (dismissed or actioned), newest reviewed_at first —
+ * via get_reviewed_reports_for_admin, which the database already orders
+ * this way. One row per report, never grouped — a single Remove bulk-actions
+ * every pending report against the same target, so History correctly shows
+ * one row per reporter, all sharing the same reviewed_at/status/preview.
+ * Sources reviewing-admin identity from the same batched profiles call as
+ * reporter/content-author — one deduplicated getProfilesByUserIds for the
+ * whole page, no posts/comments read at all.
+ */
+export async function getReviewedReportsForAdmin(): Promise<ReviewedReport[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase.rpc("get_reviewed_reports_for_admin");
+
+  if (error) {
+    console.error("Failed to load reviewed reports from Supabase:", error.message);
+    return [];
   }
+
+  const rows = (data ?? []) as ReviewedReportRow[];
+  if (rows.length === 0) return [];
 
   const userIds = new Set<string>();
-  for (const row of rows) {
+  rows.forEach((row) => {
     userIds.add(row.reporter_user_id);
-    if (row.target_type === "post" && row.target_post_id != null) {
-      const post = postsById.get(row.target_post_id);
-      if (post?.userId) userIds.add(post.userId);
-    } else if (row.target_type === "comment" && row.target_comment_id != null) {
-      const comment = commentsById.get(row.target_comment_id);
-      if (comment) userIds.add(comment.userId);
-    }
-  }
+    if (row.target_author_user_id) userIds.add(row.target_author_user_id);
+    if (row.reviewed_by_user_id) userIds.add(row.reviewed_by_user_id);
+  });
 
   const profilesByUserId = await getProfilesByUserIds(Array.from(userIds));
 
   return rows.map((row) => {
-    const reporterProfile = profilesByUserId.get(row.reporter_user_id);
-
-    let contentAuthorUserId: string | undefined;
-    let contentPreview: string;
-    let parentPostId: number;
-
-    if (row.target_type === "post" && row.target_post_id != null) {
-      const post = postsById.get(row.target_post_id);
-      contentAuthorUserId = post?.userId;
-      contentPreview = post ? getDisplayTitle(post) : "This post is no longer available.";
-      parentPostId = row.target_post_id;
-    } else {
-      const comment = row.target_comment_id != null ? commentsById.get(row.target_comment_id) : undefined;
-      contentAuthorUserId = comment?.userId;
-      contentPreview = comment?.body ?? "This comment is no longer available.";
-      parentPostId = comment?.postId ?? 0;
-    }
-
-    const contentAuthorProfile = contentAuthorUserId ? profilesByUserId.get(contentAuthorUserId) : undefined;
-
+    const reviewerProfile = row.reviewed_by_user_id ? profilesByUserId.get(row.reviewed_by_user_id) : undefined;
     return {
-      id: row.report_id,
-      targetType: row.target_type,
-      targetPostId: row.target_post_id,
-      targetCommentId: row.target_comment_id,
-      reason: row.reason,
-      createdAt: row.created_at,
-      reporterUserId: row.reporter_user_id,
-      reporterDisplayName: reporterProfile?.displayName ?? FALLBACK_DISPLAY_NAME,
-      reporterAvatarUrl: reporterProfile?.avatarUrl ?? undefined,
-      contentAuthorUserId,
-      contentAuthorDisplayName: contentAuthorProfile?.displayName ?? FALLBACK_DISPLAY_NAME,
-      contentAuthorAvatarUrl: contentAuthorProfile?.avatarUrl ?? undefined,
-      contentPreview,
-      parentPostId,
+      ...toModerationReportBase(row, profilesByUserId),
+      status: row.status,
+      reviewedAt: row.reviewed_at,
+      reviewedByUserId: row.reviewed_by_user_id,
+      reviewedByDisplayName: reviewerProfile?.displayName ?? FALLBACK_DISPLAY_NAME,
+      reviewedByAvatarUrl: reviewerProfile?.avatarUrl ?? undefined,
     };
   });
 }

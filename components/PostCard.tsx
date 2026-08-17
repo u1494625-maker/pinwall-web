@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
+import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import type { Post } from "@/types/post";
 import DemoPhoto from "./DemoPhoto";
 import PostVideoTile from "./PostVideoTile";
@@ -77,14 +77,21 @@ function PostCardAuthor({ post }: { post: Post }) {
 
   // Degrade safely: a post with no real owner (e.g. authored before auth
   // existed) gets plain, unlinked author text rather than a fake profile link.
-  if (!post.userId) {
-    return <div className="mt-1.5 flex items-center gap-1.5">{content}</div>;
-  }
-
-  return (
-    <Link href={`/profile/${post.userId}`} className="mt-1.5 flex items-center gap-1.5">
+  const authorIdentity = !post.userId ? (
+    <div className="flex min-w-0 items-center gap-1.5">{content}</div>
+  ) : (
+    <Link href={`/profile/${post.userId}`} className="flex min-w-0 items-center gap-1.5">
       {content}
     </Link>
+  );
+
+  const date = formatShortDate(post.createdAt);
+
+  return (
+    <div className="mt-1.5 flex items-center justify-between gap-2">
+      {authorIdentity}
+      {date ? <span className="shrink-0 text-[11px] text-stone-400">{date}</span> : null}
+    </div>
   );
 }
 

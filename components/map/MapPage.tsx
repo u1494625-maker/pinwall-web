@@ -22,6 +22,34 @@ const MOVE_DEBOUNCE_MS = 200;
 // post is shown as an individual pin rather than folded into a cluster.
 const TARGET_POST_ZOOM = 17;
 
+type MapTimeFilter = "week" | "month" | "all";
+
+const MAP_TIME_FILTER_OPTIONS: { value: MapTimeFilter; label: string }[] = [
+  { value: "week", label: "1 Week" },
+  { value: "month", label: "1 Month" },
+  { value: "all", label: "All" },
+];
+
+/** "All" never excludes anything. "1 Week"/"1 Month" require a real,
+ *  parseable createdAt — a post with none is excluded from those two rather
+ *  than guessed into either window. "1 Month" is one calendar month back
+ *  (e.g. Aug 17 -> Jul 17), not a fixed 30-day approximation. */
+function isWithinMapTimeFilter(createdAt: string | undefined, filter: MapTimeFilter): boolean {
+  if (filter === "all") return true;
+  if (!createdAt) return false;
+
+  const createdMs = new Date(createdAt).getTime();
+  if (Number.isNaN(createdMs)) return false;
+
+  const cutoff = new Date();
+  if (filter === "week") {
+    cutoff.setDate(cutoff.getDate() - 7);
+  } else {
+    cutoff.setMonth(cutoff.getMonth() - 1);
+  }
+  return createdMs >= cutoff.getTime();
+}
+
 function viewportFromMap(map: LType.Map): MapViewport {
   const center = map.getCenter();
   const bounds = map.getBounds();
@@ -40,10 +68,6 @@ function viewportFromMap(map: LType.Map): MapViewport {
 
 export default function MapPage() {
   const allPosts = useAllPosts();
-  // Every located point on the Map — a specific photo's own location when a
-  // post uses per-photo locations, or one legacy post-level point otherwise.
-  // See buildMapItems for the exact precedence rule.
-  const mapItems = useMemo(() => buildMapItems(allPosts), [allPosts]);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -57,6 +81,46 @@ export default function MapPage() {
     const parsed = rawTargetMediaId === null ? NaN : Number(rawTargetMediaId);
     return Number.isFinite(parsed) ? parsed : null;
   }, [rawTargetMediaId]);
+
+  const [timeFilter, setTimeFilter] = useState<MapTimeFilter>("month");
+  // Only ever goes false -> true, for the rest of this page's life — mirrors
+  // hasResolvedTargetRef's own "once per page life" reset boundary below.
+  // While it's still false AND we arrived via a postId deep link, the target
+  // post is kept visible even if it falls outside the active time window;
+  // the moment the user actually touches a filter button, that exception
+  // stops being applied on every subsequent render, with no effect on the
+  // filter label itself (it already shows whatever was actually selected).
+  const [hasManuallyChangedFilter, setHasManuallyChangedFilter] = useState(false);
+  const targetExceptionActive = targetPostId !== null && !hasManuallyChangedFilter;
+
+  function handleSelectTimeFilter(value: MapTimeFilter) {
+    setTimeFilter(value);
+    setHasManuallyChangedFilter(true);
+  }
+
+  // The actual source list clustering/markers are built from — every other
+  // Map eligibility rule (show_on_map, valid coordinates, RLS/moderation
+  // visibility) is already baked into what useAllPosts() returns and what
+  // buildMapItems selects; this only adds a time cutoff on top.
+  const filteredPosts = useMemo(() => {
+    const withinFilter = allPosts.filter((post) => isWithinMapTimeFilter(post.createdAt, timeFilter));
+    if (!targetExceptionActive) return withinFilter;
+    if (withinFilter.some((post) => post.id === targetPostId)) return withinFilter;
+
+    const targetPost = allPosts.find((post) => post.id === targetPostId);
+    return targetPost ? [...withinFilter, targetPost] : withinFilter;
+  }, [allPosts, timeFilter, targetExceptionActive, targetPostId]);
+
+  // Every located point built from the FILTERED list — this is what actually
+  // drives clustering/markers, and what cluster.postIds (and therefore any
+  // area/cluster feed opened from a tapped cluster) is derived from. See
+  // buildMapItems for the per-photo-vs-post-level precedence rule.
+  const mapItems = useMemo(() => buildMapItems(filteredPosts), [filteredPosts]);
+
+  // Unfiltered — used ONLY to resolve a postId deep-link's target location.
+  // The active time filter must never prevent "View on Map" from finding and
+  // centering on the exact post it was asked to show.
+  const allMapItems = useMemo(() => buildMapItems(allPosts), [allPosts]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
@@ -269,16 +333,19 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Rebuild the clustering index only when the underlying post set actually changes,
-  // then redraw markers for the current viewport. postsByIdRef is built from
-  // EVERY post, not just ones with a post-level location — a per-photo post
-  // deliberately has no post-level location at all (see MediaPostEditor), so
-  // filtering here would silently drop its own markers.
+  // Rebuild the clustering index only when the underlying (already time-
+  // filtered) post set actually changes, then redraw markers for the current
+  // viewport. postsByIdRef is built from every FILTERED post, not just ones
+  // with a post-level location — a per-photo post deliberately has no
+  // post-level location at all (see MediaPostEditor), so filtering here by
+  // location would silently drop its own markers. Every id mapItems can ever
+  // reference is guaranteed to be in filteredPosts already, since mapItems is
+  // itself derived from it.
   useEffect(() => {
     if (!isMapReady) return;
 
     let cancelled = false;
-    postsByIdRef.current = new Map(allPosts.map((post) => [post.id, post]));
+    postsByIdRef.current = new Map(filteredPosts.map((post) => [post.id, post]));
 
     buildClusterIndex(mapItems).then((index) => {
       if (cancelled) return;
@@ -289,7 +356,7 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [allPosts, mapItems, isMapReady, updateMarkers]);
+  }, [filteredPosts, mapItems, isMapReady, updateMarkers]);
 
   // Resolve a "View on Map" target once posts are available: center on the
   // exact item (a specific photo, or the post-level location), zoom in
@@ -300,14 +367,18 @@ export default function MapPage() {
   // since become per-photo-located — falls back to its first located photo
   // (media[0]-first convention, same as pickClusterCoverImage/PostCard's own
   // cover-selection precedent), so a stale link still lands somewhere
-  // sensible rather than resolving to nothing.
+  // sensible rather than resolving to nothing. Deliberately reads the
+  // UNFILTERED allMapItems, not mapItems — finding and centering on the
+  // requested post can never depend on the active time filter (the target
+  // exception above keeps its marker visible too, for as long as the filter
+  // hasn't been manually touched).
   useEffect(() => {
     if (!isMapReady || targetPostId === null || hasResolvedTargetRef.current) return;
 
     const map = mapRef.current;
     if (!map) return;
 
-    const target = mapItems.find(
+    const target = allMapItems.find(
       (item) => item.postId === targetPostId && (targetMediaId === null || item.mediaId === targetMediaId),
     );
 
@@ -335,11 +406,29 @@ export default function MapPage() {
       hasResolvedTargetRef.current = true;
       saveMapViewport(viewportFromMap(map));
     }
-  }, [isMapReady, mapItems, allPosts.length, targetPostId, targetMediaId, updateMarkers]);
+  }, [isMapReady, allMapItems, allPosts.length, targetPostId, targetMediaId, updateMarkers]);
 
   return (
     <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div ref={containerRef} className="h-full w-full" />
+
+      <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center">
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded-full bg-white/95 p-1 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
+          {MAP_TIME_FILTER_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => handleSelectTimeFilter(option.value)}
+              aria-pressed={timeFilter === option.value}
+              className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors ${
+                timeFilter === option.value ? "bg-stone-900 text-white" : "text-stone-500"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </main>
   );
 }

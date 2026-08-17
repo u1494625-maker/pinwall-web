@@ -13,7 +13,8 @@ import { deleteComment, getCommentsForPost, type Comment } from "@/lib/comments"
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
-import { getPostById } from "@/lib/posts";
+import { isCurrentUserAdmin } from "@/lib/admin";
+import { getPostById, getPostForModeration } from "@/lib/posts";
 import { reportComment, reportPost } from "@/lib/reports";
 import type { Post, PostMedia } from "@/types/post";
 
@@ -23,6 +24,12 @@ type PostDetailProps = {
    *  seeds which photo the gallery opens on. Undefined for a plain link,
    *  which behaves exactly as before (opens on media[0]). */
   initialMediaId?: number;
+  /** From /post/[id]?moderate=1 — the explicit moderation-tool marker (see
+   *  ModerationQueue.tsx's "View" links). The ONLY thing that makes the load
+   *  effect below ever attempt the admin fallback fetch on a not-found post;
+   *  a plain visit, even by an admin, never does. Defaults to false so every
+   *  other PostDetail caller is unaffected. */
+  isModerationView?: boolean;
 };
 
 /** Avatar + name, linking to the author's public profile — real userId only,
@@ -188,7 +195,7 @@ function PostDetailSkeleton() {
   );
 }
 
-export default function PostDetail({ postId, initialMediaId }: PostDetailProps) {
+export default function PostDetail({ postId, initialMediaId, isModerationView = false }: PostDetailProps) {
   const router = useRouter();
   const { user, signInWithGoogle } = useAuth();
   // A dedicated, fresh, per-id fetch — never the shared cross-page
@@ -219,7 +226,20 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
       }
 
       setLoading(true);
-      const result = await getPostById(id);
+      let result = await getPostById(id);
+
+      // Explicitly moderation-triggered only — never attempted on an
+      // ordinary 404, including for an admin casually browsing. The real
+      // security boundary is get_post_for_moderation's own admin check on
+      // every call, unconditionally; this is purely a client-side gate to
+      // avoid the extra round trip on every other "not found" case.
+      if (!result && isModerationView) {
+        const isAdmin = await isCurrentUserAdmin();
+        if (!cancelled && isAdmin) {
+          result = await getPostForModeration(id);
+        }
+      }
+
       if (!cancelled) {
         setFetchedPost(result);
         setLoading(false);
@@ -231,7 +251,7 @@ export default function PostDetail({ postId, initialMediaId }: PostDetailProps) 
     return () => {
       cancelled = true;
     };
-  }, [postId]);
+  }, [postId, isModerationView]);
 
   // Reporting this post immediately makes it behave as if it were already
   // gone for this viewer — the same "not found" state a genuinely deleted

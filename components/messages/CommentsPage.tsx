@@ -6,7 +6,12 @@ import DemoPhoto from "@/components/DemoPhoto";
 import NotificationRow from "@/components/messages/NotificationRow";
 import NotificationsPageShell from "@/components/messages/NotificationsPageShell";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { getCommentNotifications, markNotificationsRead, type CommentNotification } from "@/lib/notifications";
+import {
+  getCommentNotifications,
+  markNotificationsRead,
+  setUnseenNotificationCategory,
+  type CommentNotification,
+} from "@/lib/notifications";
 import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
 
 function CommentRowSkeleton() {
@@ -36,6 +41,7 @@ export default function CommentsPage() {
 
     // Fire-and-forget: opening this page marks Comments (and only Comments) read.
     markNotificationsRead(user.id, "comment");
+    setUnseenNotificationCategory("comment", false);
 
     return () => {
       cancelled = true;
@@ -82,7 +88,7 @@ export default function CommentsPage() {
                 <Link href={`/profile/${notification.actorUserId}`} className="font-bold">
                   {notification.actorDisplayName}
                 </Link>{" "}
-                commented on your post
+                {notification.isReply ? "commented on your reply" : "commented on your post"}
               </p>
               {notification.commentBody ? (
                 <Link href={`/post/${notification.postId}`}>

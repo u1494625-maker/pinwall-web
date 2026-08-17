@@ -6,7 +6,12 @@ import NotificationRow from "@/components/messages/NotificationRow";
 import NotificationsPageShell from "@/components/messages/NotificationsPageShell";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { followUser, unfollowUser, useFollowedUserIds } from "@/lib/interactions";
-import { getFollowNotifications, markNotificationsRead, type FollowNotification } from "@/lib/notifications";
+import {
+  getFollowNotifications,
+  markNotificationsRead,
+  setUnseenNotificationCategory,
+  type FollowNotification,
+} from "@/lib/notifications";
 import { formatRelativeDate } from "@/lib/postDisplay";
 
 function FollowerRowSkeleton() {
@@ -79,6 +84,7 @@ export default function FollowersPage() {
     // Fire-and-forget: opening this page marks New followers (and only
     // New followers) read.
     markNotificationsRead(user.id, "follow");
+    setUnseenNotificationCategory("follow", false);
 
     return () => {
       cancelled = true;

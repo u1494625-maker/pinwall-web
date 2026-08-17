@@ -6,9 +6,11 @@ import DemoPhoto from "@/components/DemoPhoto";
 import {
   dismissReport,
   getPendingReportsForAdmin,
+  getReviewedReportsForAdmin,
   isCurrentUserAdmin,
   removeReportedContent,
   type PendingReport,
+  type ReviewedReport,
 } from "@/lib/admin";
 import { formatRelativeDate } from "@/lib/postDisplay";
 
@@ -32,7 +34,7 @@ function IdentityRow({ label, userId, name, avatarUrl }: { label: string; userId
 
   return (
     <div className="flex items-center gap-2">
-      <span className="w-16 shrink-0 text-[11px] font-bold uppercase tracking-wide text-stone-400">{label}</span>
+      <span className="w-20 shrink-0 text-[11px] font-bold uppercase tracking-wide text-stone-400">{label}</span>
       {userId ? (
         <Link href={`/profile/${userId}`} className="flex min-w-0 items-center gap-1.5">
           {content}
@@ -44,13 +46,23 @@ function IdentityRow({ label, userId, name, avatarUrl }: { label: string; userId
   );
 }
 
-type ReportRowProps = {
+/** `/post/{id}?moderate=1` — the explicit moderation-tool marker PostDetail
+ *  requires before it will ever attempt the admin fallback fetch (see
+ *  PostDetail.tsx). Used for every "View" link in this component, on both
+ *  tabs — harmless for a Pending row (whose target is always active, so the
+ *  ordinary fetch already succeeds and this param goes unused), and what
+ *  makes History's "View" work at all for an already-removed target. */
+function moderationViewHref(parentPostId: number): string {
+  return `/post/${parentPostId}?moderate=1`;
+}
+
+type PendingRowProps = {
   report: PendingReport;
   onDismissed: (reportId: number) => void;
   onRemoved: (report: PendingReport) => void;
 };
 
-function ReportRow({ report, onDismissed, onRemoved }: ReportRowProps) {
+function PendingRow({ report, onDismissed, onRemoved }: PendingRowProps) {
   const [isDismissing, setIsDismissing] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
@@ -131,12 +143,14 @@ function ReportRow({ report, onDismissed, onRemoved }: ReportRowProps) {
         </div>
       ) : (
         <div className="mt-3 flex gap-2">
-          <Link
-            href={`/post/${report.parentPostId}`}
-            className="flex-1 rounded-full bg-stone-100 py-2 text-center text-xs font-bold text-stone-600"
-          >
-            View
-          </Link>
+          {report.parentPostId > 0 ? (
+            <Link
+              href={moderationViewHref(report.parentPostId)}
+              className="flex-1 rounded-full bg-stone-100 py-2 text-center text-xs font-bold text-stone-600"
+            >
+              View
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={handleDismiss}
@@ -159,22 +173,84 @@ function ReportRow({ report, onDismissed, onRemoved }: ReportRowProps) {
   );
 }
 
+function HistoryRow({ report }: { report: ReviewedReport }) {
+  const wasRemoved = report.status === "actioned";
+
+  return (
+    <li className="border-b border-stone-100 px-4 py-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-stone-500">
+          {report.targetType === "post" ? "Post" : "Comment"}
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+            wasRemoved ? "bg-red-50 text-red-600" : "bg-stone-100 text-stone-500"
+          }`}
+        >
+          {wasRemoved ? "Removed" : "Dismissed"}
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-1.5">
+        <IdentityRow label="Reporter" userId={report.reporterUserId} name={report.reporterDisplayName} avatarUrl={report.reporterAvatarUrl} />
+        <IdentityRow label="Author" userId={report.contentAuthorUserId} name={report.contentAuthorDisplayName} avatarUrl={report.contentAuthorAvatarUrl} />
+        <IdentityRow
+          label="Reviewed by"
+          userId={report.reviewedByUserId ?? undefined}
+          name={report.reviewedByDisplayName}
+          avatarUrl={report.reviewedByAvatarUrl}
+        />
+      </div>
+
+      {report.reason ? <p className="mt-2 text-sm text-stone-700">&ldquo;{report.reason}&rdquo;</p> : null}
+
+      <p className="mt-2 line-clamp-2 rounded-xl bg-stone-50 px-3 py-2 text-sm text-stone-600">{report.contentPreview}</p>
+
+      <p className="mt-2 text-[11px] text-stone-400">Reviewed {formatRelativeDate(report.reviewedAt)}</p>
+
+      {report.parentPostId > 0 ? (
+        <div className="mt-3">
+          <Link
+            href={moderationViewHref(report.parentPostId)}
+            className="inline-flex rounded-full bg-stone-100 px-4 py-2 text-xs font-bold text-stone-600"
+          >
+            View
+          </Link>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 function sameTarget(a: PendingReport, b: PendingReport): boolean {
   if (a.targetType !== b.targetType) return false;
   return a.targetType === "post" ? a.targetPostId === b.targetPostId : a.targetCommentId === b.targetCommentId;
 }
 
+type ModerationTab = "pending" | "history";
+
 /**
- * Admin-only moderation queue — every pending report, newest first. Gated by
- * a real server-side check (isCurrentUserAdmin, which itself only reflects
- * what is_current_user_admin() says); a non-admin sees a plain "Not
- * authorized" state and the underlying RPCs would reject them regardless of
- * what this component renders.
+ * Admin-only moderation queue — gated by a real server-side check
+ * (isCurrentUserAdmin, which itself only reflects what is_current_user_admin()
+ * says); a non-admin sees a plain "Not authorized" state and the underlying
+ * RPCs would reject them regardless of what this component renders.
+ *
+ * Two tabs, both entirely RPC-sourced (zero dependency on ordinary posts/
+ * comments RLS, per Phase 5E): Pending (get_pending_reports_for_admin,
+ * unchanged behavior) and History (get_reviewed_reports_for_admin,
+ * dismissed + actioned, newest reviewed first). History is fetched fresh
+ * every time the tab is selected, not just once, so an admin's own
+ * just-completed Dismiss/Remove on the Pending tab shows up immediately.
  */
 export default function ModerationQueue() {
   const [status, setStatus] = useState<"checking" | "unauthorized" | "authorized">("checking");
+  const [activeTab, setActiveTab] = useState<ModerationTab>("pending");
+
   const [reports, setReports] = useState<PendingReport[]>([]);
   const [reportsLoading, setReportsLoading] = useState(true);
+
+  const [historyReports, setHistoryReports] = useState<ReviewedReport[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,6 +276,26 @@ export default function ModerationQueue() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (status !== "authorized" || activeTab !== "history") return;
+    let cancelled = false;
+
+    async function load() {
+      setHistoryLoading(true);
+      const result = await getReviewedReportsForAdmin();
+      if (!cancelled) {
+        setHistoryReports(result);
+        setHistoryLoading(false);
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status, activeTab]);
 
   function handleDismissed(reportId: number) {
     setReports((prev) => prev.filter((report) => report.id !== reportId));
@@ -233,17 +329,47 @@ export default function ModerationQueue() {
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-10 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <header className="px-5 pb-4 pt-8">
         <h1 className="text-xl font-black tracking-tight text-stone-900">Moderation queue</h1>
-        <p className="mt-1 text-sm text-stone-500">Pending reports, newest first.</p>
+        <p className="mt-1 text-sm text-stone-500">
+          {activeTab === "pending" ? "Pending reports, newest first." : "Reviewed reports, newest first."}
+        </p>
+
+        <div className="mt-4 flex gap-2">
+          {(["pending", "history"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              aria-pressed={activeTab === tab}
+              className={`rounded-full px-4 py-2 text-xs font-bold ${
+                activeTab === tab ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600"
+              }`}
+            >
+              {tab === "pending" ? "Pending" : "History"}
+            </button>
+          ))}
+        </div>
       </header>
 
-      {reportsLoading ? (
+      {activeTab === "pending" ? (
+        reportsLoading ? (
+          <p className="px-5 py-10 text-center text-sm text-stone-400">Loading…</p>
+        ) : reports.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-stone-400">No reports to review.</p>
+        ) : (
+          <ul>
+            {reports.map((report) => (
+              <PendingRow key={report.id} report={report} onDismissed={handleDismissed} onRemoved={handleRemoved} />
+            ))}
+          </ul>
+        )
+      ) : historyLoading ? (
         <p className="px-5 py-10 text-center text-sm text-stone-400">Loading…</p>
-      ) : reports.length === 0 ? (
-        <p className="px-5 py-10 text-center text-sm text-stone-400">No reports to review.</p>
+      ) : historyReports.length === 0 ? (
+        <p className="px-5 py-10 text-center text-sm text-stone-400">No reviewed reports yet.</p>
       ) : (
         <ul>
-          {reports.map((report) => (
-            <ReportRow key={report.id} report={report} onDismissed={handleDismissed} onRemoved={handleRemoved} />
+          {historyReports.map((report) => (
+            <HistoryRow key={report.id} report={report} />
           ))}
         </ul>
       )}

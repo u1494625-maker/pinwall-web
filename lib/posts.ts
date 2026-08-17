@@ -269,6 +269,61 @@ export async function getPostById(id: number): Promise<Post | undefined> {
   return post;
 }
 
+const POST_MEDIA_COLUMNS =
+  "id, media_type, url, storage_path, aspect_ratio, position, thumbnail_url, latitude, longitude, location_name";
+
+/**
+ * Admin-only, explicitly moderation-triggered fetch of one post regardless
+ * of moderation_status — see get_post_for_moderation in
+ * supabase/moderation_history.sql. The RPC itself re-checks
+ * is_current_user_admin() on every call, unconditionally; that is the real
+ * security boundary, not anything the caller does. getPostById has no
+ * awareness of this at all and stays exactly as it was — this exists solely
+ * for PostDetail's own explicit ?moderate=1 fallback (see PostDetail.tsx),
+ * not for EditPostForm or any other ordinary consumer.
+ *
+ * The RPC returns the bare `public.posts` row (not `setof`, so PostgREST
+ * responds with a single object, not an array — same reasoning as
+ * add_comment in lib/comments.ts, so no `.single()` here) — unlike every
+ * other fetch in this file, it has no nested post_media(*) embed, since
+ * that's a PostgREST REST-query feature a plain RPC composite return can't
+ * include. post_media's own RLS ("Public can read post media", using (true))
+ * is already unconditional regardless of the parent post's moderation_status
+ * — ordinary reads never notice this because the parent post being filtered
+ * out already prevents the embedded query from running at all; fetching it
+ * here as a separate, always-permitted query is exactly as safe as that
+ * embed already is for any visible post. Reuses the exact same
+ * rowToPost/rowToPostMedia/attachEngagement/attachAuthorProfiles pipeline as
+ * every other fetch — no separate Post-shape conversion.
+ */
+export async function getPostForModeration(id: number): Promise<Post | undefined> {
+  if (!isSupabaseConfigured) {
+    warnIfNotConfigured();
+    return undefined;
+  }
+
+  const { data, error } = await supabase.rpc("get_post_for_moderation", { p_post_id: id });
+
+  if (error || !data) {
+    console.error("Failed to load post for moderation from Supabase:", error?.message);
+    return undefined;
+  }
+
+  const { data: mediaRows, error: mediaError } = await supabase
+    .from("post_media")
+    .select(POST_MEDIA_COLUMNS)
+    .eq("post_id", id)
+    .order("position", { ascending: true });
+
+  if (mediaError) {
+    console.error("Failed to load post media for moderation from Supabase:", mediaError.message);
+  }
+
+  const row: PostRow = { ...(data as PostRow), post_media: (mediaRows as PostMediaRow[] | null) ?? [] };
+  const [post] = await attachAuthorProfiles(await attachEngagement([rowToPost(row)]));
+  return post;
+}
+
 export type NewPostMediaInput = {
   type: MediaType;
   url: string;

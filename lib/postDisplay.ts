@@ -33,6 +33,21 @@ export function formatRelativeDate(iso: string): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(then);
 }
 
+/** Absolute MM/DD/YY date, e.g. "08/17/26" — deliberately never a relative
+ *  format ("3d ago"). Returns undefined for a missing or unparseable input
+ *  so callers can render no date at all rather than a fake value. */
+export function formatShortDate(iso: string | undefined): string | undefined {
+  if (!iso) return undefined;
+
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return undefined;
+
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const year = String(date.getFullYear()).slice(-2);
+  return `${month}/${day}/${year}`;
+}
+
 /** Fallback used only when a post's stored image_aspect is missing or unparseable. */
 export const DEFAULT_IMAGE_ASPECT_RATIO = "4/5";
 

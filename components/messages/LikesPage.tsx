@@ -6,7 +6,12 @@ import DemoPhoto from "@/components/DemoPhoto";
 import NotificationRow from "@/components/messages/NotificationRow";
 import NotificationsPageShell from "@/components/messages/NotificationsPageShell";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { getLikeNotifications, markNotificationsRead, type LikeNotification } from "@/lib/notifications";
+import {
+  getLikeNotifications,
+  markNotificationsRead,
+  setUnseenNotificationCategory,
+  type LikeNotification,
+} from "@/lib/notifications";
 import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
 
 function LikeRowSkeleton() {
@@ -36,6 +41,7 @@ export default function LikesPage() {
 
     // Fire-and-forget: opening this page marks Likes (and only Likes) read.
     markNotificationsRead(user.id, "like");
+    setUnseenNotificationCategory("like", false);
 
     return () => {
       cancelled = true;

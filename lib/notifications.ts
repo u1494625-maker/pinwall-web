@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { getCommentsByIds } from "@/lib/comments";
 import { getPostsByIds } from "@/lib/posts";
 import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds } from "@/lib/profiles";
@@ -40,6 +41,13 @@ export type CommentNotification = ActorIdentity & {
   post?: Post;
   commentId: number;
   commentBody: string;
+  /** True when I am specifically the person being replied to (not merely
+   *  "the underlying comment happens to be a reply to someone") — computed
+   *  once, server-side, at insert time (see notify_on_comment in
+   *  supabase/notifications_updates.sql), so it stays correct even if the
+   *  comment is later moderation-removed or its root is removed. Never
+   *  re-derived client-side from the comment's own parentCommentId. */
+  isReply: boolean;
   createdAt: string;
   readAt: string | null;
 };
@@ -56,13 +64,15 @@ type NotificationRow = {
   actor_user_id: string;
   post_id: number | null;
   comment_id: number | null;
+  is_reply: boolean;
   read_at: string | null;
   created_at: string;
 };
 
-const NOTIFICATION_COLUMNS = "id, actor_user_id, post_id, comment_id, read_at, created_at";
+const NOTIFICATION_COLUMNS = "id, actor_user_id, post_id, comment_id, is_reply, read_at, created_at";
 
-/** One round trip for the three Messages-home badges. */
+/** One round trip for the three Messages-home badges — also the initial/
+ *  recovery value for BottomNav's per-category unread store below. */
 export async function getUnreadNotificationCounts(): Promise<UnreadNotificationCounts> {
   if (!isSupabaseConfigured) return EMPTY_UNREAD_COUNTS;
 
@@ -129,11 +139,14 @@ export async function getLikeNotifications(): Promise<LikeNotification[]> {
   });
 }
 
-/** Real historical Comment notifications on the signed-in user's own posts,
- *  newest first. Each real comment is its own independent event — the
+/** Real historical Comment notifications on the signed-in user's own posts —
+ *  and, since Phase 5D, on the signed-in user's own comments/replies too,
+ *  newest first. Each real comment/reply is its own independent event — the
  *  database never dedups these, so the same actor commenting twice on the
  *  same post correctly produces two rows here. Actor identity, post
- *  previews, and comment bodies are all batch-resolved. */
+ *  previews, and comment bodies are all batch-resolved. isReply comes
+ *  straight off the row (see the type's own doc comment) — never inferred
+ *  from the batch-loaded comment. */
 export async function getCommentNotifications(): Promise<CommentNotification[]> {
   const rows = await fetchNotificationRows("comment");
   if (rows.length === 0) return [];
@@ -161,6 +174,7 @@ export async function getCommentNotifications(): Promise<CommentNotification[]> 
       post: row.post_id != null ? postsById.get(row.post_id) : undefined,
       commentId: row.comment_id as number,
       commentBody: comment?.body ?? "",
+      isReply: row.is_reply,
       createdAt: row.created_at,
       readAt: row.read_at,
     };
@@ -210,4 +224,93 @@ export async function markNotificationsRead(userId: string, type: NotificationTy
   if (error) {
     console.error(`Failed to mark ${type} notifications read:`, error.message);
   }
+}
+
+// ============================================================================
+// Shared, same-tab reactive state for the BottomNav dot's notification portion
+// ============================================================================
+// A separate store from lib/messages.ts's hasUnseenMessages — deliberately
+// not merged into it. Each of the three categories clears independently
+// (its own page marking only its own type read), so a single shared boolean
+// would mean clearing any one of them could incorrectly clear the others'
+// contribution to the dot. BottomNav simply ORs both stores' hooks together
+// at render time; neither store ever writes to the other.
+
+type NotificationCategory = "like" | "follow" | "comment";
+
+let unseenNotificationCategories: Record<NotificationCategory, boolean> = {
+  like: false,
+  follow: false,
+  comment: false,
+};
+const unseenNotificationListeners = new Set<() => void>();
+
+function notifyUnseenNotificationListeners() {
+  unseenNotificationListeners.forEach((listener) => listener());
+}
+
+/** Flips one category's unseen flag and notifies subscribers — a no-op if
+ *  the value isn't actually changing, so this is safe to call from a
+ *  Realtime handler on every qualifying event without spamming re-renders. */
+export function setUnseenNotificationCategory(category: NotificationCategory, value: boolean) {
+  if (unseenNotificationCategories[category] === value) return;
+  unseenNotificationCategories = { ...unseenNotificationCategories, [category]: value };
+  notifyUnseenNotificationListeners();
+}
+
+/** Seeds all three categories at once from a real getUnreadNotificationCounts()
+ *  result — the initial/recovery value on BottomNav mount, before Realtime
+ *  has had a chance to report anything live. */
+export function setUnseenNotificationCategoriesFromCounts(counts: UnreadNotificationCounts) {
+  setUnseenNotificationCategory("like", counts.likeCount > 0);
+  setUnseenNotificationCategory("follow", counts.followCount > 0);
+  setUnseenNotificationCategory("comment", counts.commentCount > 0);
+}
+
+/** Reactive read of "is any of Likes/Followers/Comments currently unseen" —
+ *  false on both the server and the first client render, only ever changing
+ *  after a real client-side check or Realtime event. */
+export function useHasUnseenNotifications(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      unseenNotificationListeners.add(onChange);
+      return () => unseenNotificationListeners.delete(onChange);
+    },
+    () => unseenNotificationCategories.like || unseenNotificationCategories.follow || unseenNotificationCategories.comment,
+    () => false,
+  );
+}
+
+/** snake_case shape of the one field this subscription actually needs. */
+type IncomingNotificationRow = { type: NotificationType };
+
+/**
+ * One Realtime subscription for the current recipient's own notifications —
+ * not three. Filtered server-side by recipient_user_id, though RLS remains
+ * the actual security backstop regardless of what filter a caller requests
+ * (same principle as subscribeToConversationMessages's conversation_id
+ * filter in lib/messages.ts). No self-exclusion check is needed here, unlike
+ * the DM case: the database never creates a notification where the actor is
+ * also the recipient (every trigger in notifications_updates.sql/
+ * comment_replies.sql/notifications.sql already guards this), so every row
+ * this delivers is genuinely new activity from someone else.
+ */
+export function subscribeToIncomingNotifications(
+  userId: string,
+  onInsert: (notification: { type: NotificationType }) => void,
+): () => void {
+  if (!isSupabaseConfigured) return () => {};
+
+  const channel = supabase
+    .channel(`notifications-${userId}`)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_user_id=eq.${userId}` },
+      (payload) => onInsert(payload.new as IncomingNotificationRow),
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
