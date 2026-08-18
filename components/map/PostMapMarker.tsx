@@ -8,22 +8,18 @@ type PostMapMarkerProps = {
    *  per-photo-located item this is that specific photo instead. Undefined
    *  for text posts. */
   cover: PostMedia | undefined;
-  /** Already resolved (e.g. via getDisplayTitle) — this component doesn't handle a missing title. */
+  /** Already resolved (e.g. via getDisplayTitle) — this component doesn't
+   *  handle a missing title. Shown as the label below the marker for every
+   *  case except a templated text post, whose visual cover already shows it. */
   title: string;
   /** True for the post targeted via "View on Map" — a lightweight visual cue only, not a redesign. */
   highlighted?: boolean;
   /** Set only for a templated text post (media.length === 0 && textTemplate
-   *  exists) — pre-resolved by the caller (MapPage.tsx computes
-   *  paginateText(post.caption, post.textTemplate) once), the same
-   *  "resolved, ready-to-render" convention `title` already follows. Both
-   *  left undefined for a media post or a legacy text post with no
-   *  template, in which case the generic pencil placeholder still renders. */
+   *  exists) — pre-resolved by the caller (MapPage.tsx passes getDisplayTitle(post),
+   *  the same value as `title`) so this component stays purely presentational.
+   *  Left undefined for a media post or a legacy text post with no template,
+   *  in which case the generic pencil placeholder still renders. */
   textTemplate?: TextTemplateId;
-  text?: string;
-  /** > 1 when the post's caption paginates into more than one page — shows a
-   *  small "N" page-count badge, matching PostCard's own indicator. Map only
-   *  ever shows page 1's content here; there is no in-marker carousel. */
-  pageCount?: number;
 };
 
 /**
@@ -34,14 +30,9 @@ type PostMapMarkerProps = {
  * still works in static markup since no JS/React is involved in the animation.
  * TextPostVisual is equally hook-free, so the same mechanism covers it.
  */
-export default function PostMapMarker({
-  cover,
-  title,
-  highlighted = false,
-  textTemplate,
-  text,
-  pageCount,
-}: PostMapMarkerProps) {
+export default function PostMapMarker({ cover, title, highlighted = false, textTemplate }: PostMapMarkerProps) {
+  const isTemplatedText = Boolean(textTemplate);
+
   return (
     <div className="flex w-20 flex-col items-center pb-1.5">
       <div className="relative w-full">
@@ -64,15 +55,8 @@ export default function PostMapMarker({
             </div>
           ) : cover?.type === "video" ? (
             <div className="grid aspect-square w-full place-items-center bg-stone-800 text-base text-white">▶</div>
-          ) : textTemplate && text != null ? (
-            <div className="relative aspect-square w-full">
-              <TextPostVisual template={textTemplate} text={text} size="map" />
-              {pageCount && pageCount > 1 ? (
-                <span className="absolute bottom-0.5 right-0.5 rounded-full bg-black/60 px-1 py-px text-[7px] font-bold leading-none text-white">
-                  1/{pageCount}
-                </span>
-              ) : null}
-            </div>
+          ) : textTemplate ? (
+            <TextPostVisual template={textTemplate} text={title} size="map" />
           ) : (
             <div className="grid aspect-square w-full place-items-center bg-orange-100 text-base text-orange-600">
               ✎
@@ -80,13 +64,18 @@ export default function PostMapMarker({
           )}
         </div>
       </div>
-      {/* No line-clamp: a title never gets silently cut off here. Bounded
-          instead by TitleField's own 40-char input cap plus a deliberately
-          moderate max-width, so a long title wraps to a few short lines
-          rather than either hiding text or growing without limit. */}
-      <span className="mt-1 max-w-[6.5rem] rounded-lg bg-white/95 px-2 py-0.5 text-center text-[10px] font-bold leading-tight text-stone-900 shadow">
-        {title}
-      </span>
+      {/* A templated text post's cover already shows the title — a second
+          label below would be a literal duplicate, so it's the only case
+          this is skipped. No line-clamp elsewhere: a title never gets
+          silently cut off here — bounded instead by TitleField's own
+          40-char input cap plus a deliberately moderate max-width, so a
+          long title wraps to a few short lines rather than either hiding
+          text or growing without limit. */}
+      {!isTemplatedText ? (
+        <span className="mt-1 max-w-[6.5rem] rounded-lg bg-white/95 px-2 py-0.5 text-center text-[10px] font-bold leading-tight text-stone-900 shadow">
+          {title}
+        </span>
+      ) : null}
     </div>
   );
 }

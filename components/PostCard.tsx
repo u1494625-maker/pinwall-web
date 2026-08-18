@@ -3,7 +3,6 @@
 import Link from "next/link";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
-import { paginateText } from "@/lib/textPagination";
 import type { Post } from "@/types/post";
 import DemoPhoto from "./DemoPhoto";
 import PostVideoTile from "./PostVideoTile";
@@ -30,25 +29,14 @@ function PostCardMedia({ post }: { post: Post }) {
   const cover = post.media[0];
 
   if (!cover) {
-    // A templated text post (Phase 6A) — only ever page 1 here, matching
-    // "the masonry feed shows page 1 only"; PostDetail is where every page
-    // becomes visible. A pre-Phase-6A text post has no textTemplate, so it
-    // falls through to the plain title/author-only card exactly as before.
+    // A templated text post — the template IS the post's visual cover,
+    // showing its title, exactly like a photo cover shows the photo. The
+    // headline below (in PostCard itself) is skipped for these so the title
+    // never appears twice. A text post with no template (published before
+    // this feature, or without one) falls through to the plain
+    // title/author-only card exactly as before.
     if (post.textTemplate) {
-      const pages = paginateText(post.caption, post.textTemplate);
-      return (
-        <div className="relative">
-          <TextPostVisual template={post.textTemplate} text={pages[0]} size="card" />
-          {pages.length > 1 ? (
-            <span
-              aria-hidden="true"
-              className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white"
-            >
-              1/{pages.length}
-            </span>
-          ) : null}
-        </div>
-      );
+      return <TextPostVisual template={post.textTemplate} text={getDisplayTitle(post)} size="card" />;
     }
 
     // A post with no media at all and no template — dead space would just
@@ -124,11 +112,15 @@ export default function PostCard({ post }: PostCardProps) {
       <Link href={`/post/${post.id}`}>
         <PostCardMedia post={post} />
 
-        <div className="px-2.5 pt-2.5">
-          <h2 className="text-[13px] font-bold leading-snug text-stone-900">
-            {getDisplayTitle(post)}
-          </h2>
-        </div>
+        {/* The templated-text cover above already shows the title — repeating
+            it here would be a literal duplicate, not a supporting caption. */}
+        {!post.textTemplate ? (
+          <div className="px-2.5 pt-2.5">
+            <h2 className="text-[13px] font-bold leading-snug text-stone-900">
+              {getDisplayTitle(post)}
+            </h2>
+          </div>
+        ) : null}
       </Link>
 
       <div className="px-2.5 pb-2.5">

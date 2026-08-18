@@ -4,9 +4,10 @@ export type TextPostVisualSize = "card" | "detail" | "map";
 
 type TextPostVisualProps = {
   template: TextTemplateId;
-  /** One page's worth of text — pagination happens before this component
-   *  ever sees the text (lib/textPagination.ts); this only ever renders
-   *  exactly what it's given. */
+  /** The post's title — the template is the post's visual cover, and the
+   *  title is what a cover shows, exactly like a photo cover shows the
+   *  photo. The caption/body is never rendered here; it stays real,
+   *  unstyled text below the visual in PostCard/PostDetail/PostMapMarker. */
   text: string;
   size?: TextPostVisualSize;
 };
@@ -128,14 +129,13 @@ const TEMPLATE_VISUALS: Record<TextTemplateId, typeof NoteVisual> = {
   basic: BasicVisual,
 };
 
-/** Renders one visual page of a templated text post — the shared entry
- *  point for PostCard (one page, "card" size), TextPostPages/PostDetail
- *  (every page, "detail" size), Map markers (one page, "map" size — a
- *  square crop of the same template, never a resized/rasterized copy), and
- *  TextTemplatePicker's live preview. Pure presentation: doesn't decide how
- *  the caption gets split into pages (see lib/textPagination.ts) and never
- *  reads post.title — every caller keeps rendering the post's headline
- *  separately, exactly as it does for a photo post. */
+/** Renders a templated text post's visual cover — the shared entry point for
+ *  PostCard ("card" size), PostDetail ("detail" size), Map markers ("map"
+ *  size — a square crop of the same template, never a resized/rasterized
+ *  copy), and TextTemplatePicker's live preview. Pure presentation: always
+ *  renders `text` (the post's title) verbatim, never truncates or paginates
+ *  it — a title already has a short, controlled max length (see
+ *  components/add/TitleField.tsx), so it always fits on one visual as-is. */
 export default function TextPostVisual({ template, text, size = "card" }: TextPostVisualProps) {
   const Visual = TEMPLATE_VISUALS[template];
   return <Visual text={text} size={size} />;

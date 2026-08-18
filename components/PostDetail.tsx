@@ -8,7 +8,7 @@ import PostMediaGallery from "@/components/PostMediaGallery";
 import CommentThread from "@/components/post/CommentThread";
 import PostManageSheet from "@/components/post/PostManageSheet";
 import ReportModal from "@/components/post/ReportModal";
-import TextPostPages from "@/components/post/TextPostPages";
+import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
@@ -546,7 +546,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
 
       {post.media.length === 0 && post.textTemplate ? (
         <div className="px-5 pt-5">
-          <TextPostPages template={post.textTemplate} caption={post.caption} />
+          <TextPostVisual template={post.textTemplate} text={getDisplayTitle(post)} size="detail" />
         </div>
       ) : (
         <PostMediaGallery
@@ -568,10 +568,14 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
           </Link>
         ) : null}
 
-        <h1 className="mt-1.5 text-xl font-black leading-tight text-stone-900">{getDisplayTitle(post)}</h1>
+        {/* The templated-text cover above already shows the title — repeating
+            it here would be a literal duplicate, not a supporting headline. */}
+        {!post.textTemplate ? (
+          <h1 className="mt-1.5 text-xl font-black leading-tight text-stone-900">{getDisplayTitle(post)}</h1>
+        ) : null}
 
         <p
-          className={`mt-3 text-stone-600 ${post.media.length === 0 ? "text-base leading-8" : "text-sm leading-6"}`}
+          className={`text-stone-600 ${post.textTemplate ? "mt-4" : "mt-3"} ${post.media.length === 0 ? "text-base leading-8" : "text-sm leading-6"}`}
         >
           {post.caption}
         </p>

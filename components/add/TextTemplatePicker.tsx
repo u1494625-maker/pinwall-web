@@ -6,22 +6,21 @@ import { TEXT_TEMPLATE_IDS, TEXT_TEMPLATES, type TextTemplateId } from "@/lib/te
 type TextTemplatePickerProps = {
   template: TextTemplateId;
   onTemplateChange: (template: TextTemplateId) => void;
-  previewText: string;
+  title: string;
 };
 
 /**
  * Large live preview — exactly the same TextPostVisual the feed/detail will
  * render, so preview is truth, nothing separate to keep in sync — plus a
  * horizontal row of 4 selectable template swatches. Tapping a swatch swaps
- * the preview immediately (pure state, no fetch). Long text's later pages
- * aren't shown here: every page always shares this one selected template
- * (see lib/textPagination.ts), so there's nothing page-2-specific to preview
- * before publishing.
+ * the preview immediately (pure state, no fetch). Previews the TITLE, not
+ * the caption — the template is the post's visual cover, and a cover shows
+ * the title, exactly like a photo cover shows the photo.
  */
-export default function TextTemplatePicker({ template, onTemplateChange, previewText }: TextTemplatePickerProps) {
+export default function TextTemplatePicker({ template, onTemplateChange, title }: TextTemplatePickerProps) {
   return (
     <div className="space-y-3">
-      <TextPostVisual template={template} text={previewText || "Your text will look like this."} size="card" />
+      <TextPostVisual template={template} text={title || "Your title will look like this."} size="card" />
 
       <div className="no-scrollbar flex gap-2 overflow-x-auto">
         {TEXT_TEMPLATE_IDS.map((id) => {

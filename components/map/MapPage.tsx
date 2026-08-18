@@ -9,7 +9,7 @@ import { useAllPosts } from "@/lib/posts";
 import { buildClusterIndex, buildMapItems, getVisibleMapFeatures, pickClusterCoverImage, type MapItemIndex } from "@/lib/map/clustering";
 import { readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
-import { paginateText } from "@/lib/textPagination";
+import { postMatchesQuery } from "@/lib/search";
 import type { Post } from "@/types/post";
 import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
 import PostMapMarker from "./PostMapMarker";
@@ -84,13 +84,16 @@ export default function MapPage() {
   }, [rawTargetMediaId]);
 
   const [timeFilter, setTimeFilter] = useState<MapTimeFilter>("month");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   // Only ever goes false -> true, for the rest of this page's life — mirrors
   // hasResolvedTargetRef's own "once per page life" reset boundary below.
   // While it's still false AND we arrived via a postId deep link, the target
-  // post is kept visible even if it falls outside the active time window;
-  // the moment the user actually touches a filter button, that exception
-  // stops being applied on every subsequent render, with no effect on the
-  // filter label itself (it already shows whatever was actually selected).
+  // post is kept visible even if it falls outside the active time/keyword
+  // filters; the moment the user actually touches a filter control (a time
+  // pill, or typing into search), that exception stops being applied on
+  // every subsequent render, with no effect on the filters' own values
+  // (they already show/apply whatever was actually selected/typed).
   const [hasManuallyChangedFilter, setHasManuallyChangedFilter] = useState(false);
   const targetExceptionActive = targetPostId !== null && !hasManuallyChangedFilter;
 
@@ -99,18 +102,34 @@ export default function MapPage() {
     setHasManuallyChangedFilter(true);
   }
 
+  function handleSearchQueryChange(value: string) {
+    setSearchQuery(value);
+    setHasManuallyChangedFilter(true);
+  }
+
+  function closeSearch() {
+    setSearchQuery("");
+    setIsSearchOpen(false);
+  }
+
   // The actual source list clustering/markers are built from — every other
   // Map eligibility rule (show_on_map, valid coordinates, RLS/moderation
   // visibility) is already baked into what useAllPosts() returns and what
-  // buildMapItems selects; this only adds a time cutoff on top.
+  // buildMapItems selects. Time and keyword combine with AND: both filters
+  // apply to the same source list, in one pass, before anything downstream
+  // (clustering, marker generation, cluster-feed postIds) ever sees it —
+  // postMatchesQuery already treats a blank query as "matches everything,"
+  // so no separate branch is needed for "search is empty."
   const filteredPosts = useMemo(() => {
-    const withinFilter = allPosts.filter((post) => isWithinMapTimeFilter(post.createdAt, timeFilter));
+    const withinFilter = allPosts
+      .filter((post) => isWithinMapTimeFilter(post.createdAt, timeFilter))
+      .filter((post) => postMatchesQuery(post, searchQuery));
     if (!targetExceptionActive) return withinFilter;
     if (withinFilter.some((post) => post.id === targetPostId)) return withinFilter;
 
     const targetPost = allPosts.find((post) => post.id === targetPostId);
     return targetPost ? [...withinFilter, targetPost] : withinFilter;
-  }, [allPosts, timeFilter, targetExceptionActive, targetPostId]);
+  }, [allPosts, timeFilter, searchQuery, targetExceptionActive, targetPostId]);
 
   // Every located point built from the FILTERED list — this is what actually
   // drives clustering/markers, and what cluster.postIds (and therefore any
@@ -180,11 +199,10 @@ export default function MapPage() {
         const longitude = mediaId != null ? cover?.longitude : post.longitude;
         if (latitude == null || longitude == null) continue;
 
-        // Templated text post (no media at all) — resolved here, once, the
-        // same "caller pre-resolves it" convention title already follows.
-        // Page 1 only; a legacy text post (no textTemplate) leaves both
-        // undefined and PostMapMarker falls back to its existing placeholder.
-        const textPages = !cover && post.textTemplate ? paginateText(post.caption, post.textTemplate) : null;
+        // Templated text post (no media at all) — a legacy text post (no
+        // textTemplate) leaves this undefined and PostMapMarker falls back
+        // to its existing pencil placeholder.
+        const textTemplate = !cover && post.textTemplate ? post.textTemplate : undefined;
 
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
@@ -194,9 +212,7 @@ export default function MapPage() {
               highlighted={
                 highlightedItemRef.current?.postId === postId && highlightedItemRef.current?.mediaId === mediaId
               }
-              textTemplate={textPages ? post.textTemplate : undefined}
-              text={textPages?.[0]}
-              pageCount={textPages?.length}
+              textTemplate={textTemplate}
             />,
           ),
           className: "",
@@ -422,8 +438,14 @@ export default function MapPage() {
     <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div ref={containerRef} className="h-full w-full" />
 
-      <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-full bg-white/95 p-1 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
+      {/* One shared row for both filter controls — a plain flex layout (not
+          two independently absolutely-positioned/centered elements) so they
+          divide the available width naturally and can never overlap, even
+          with search open and every time-filter label visible at once,
+          which requirement 16 (adjusting time filter while search is
+          active) needs both to stay true. */}
+      <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex items-start justify-between gap-2 px-3">
+        <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-full bg-white/95 p-1 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
           {MAP_TIME_FILTER_OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -438,6 +460,41 @@ export default function MapPage() {
             </button>
           ))}
         </div>
+
+        {/* Keyword search — a second, independent filter dimension from the
+            time pills, combined with AND (see filteredPosts). Compact and
+            collapsible on purpose: it must never cover much map area, and an
+            empty query is exactly equivalent to not searching at all. */}
+        {isSearchOpen ? (
+          <div className="pointer-events-auto flex min-w-0 shrink items-center gap-1 rounded-full bg-white/95 py-1.5 pl-3 pr-1.5 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
+            <input
+              autoFocus
+              type="text"
+              value={searchQuery}
+              onChange={(event) => handleSearchQueryChange(event.target.value)}
+              placeholder="Search posts…"
+              aria-label="Search map posts"
+              className="w-20 min-w-0 bg-transparent text-[12px] text-stone-900 outline-none placeholder:text-stone-400"
+            />
+            <button
+              type="button"
+              onClick={closeSearch}
+              aria-label="Clear search"
+              className="grid size-6 shrink-0 place-items-center rounded-full text-stone-500"
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen(true)}
+            aria-label="Search map"
+            className="pointer-events-auto grid size-9 shrink-0 place-items-center rounded-full bg-white/95 text-stone-600 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur"
+          >
+            ⌕
+          </button>
+        )}
       </div>
     </main>
   );

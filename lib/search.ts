@@ -6,6 +6,47 @@ function toTimestamp(createdAt: string | undefined): number {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function tokenize(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/** The fields a post's author actually wrote — title, tags, location,
+ *  caption — plus the author's current display name (via profiles, never a
+ *  stored snapshot), weighted by how deliberate/curated each field is. The
+ *  one shared definition of "matches a keyword," behind both postMatchesQuery
+ *  and searchPosts below — never duplicate this list. */
+function searchableFields(post: Post): Array<[string, number]> {
+  return [
+    [(post.title ?? "").toLowerCase(), 5],
+    [post.tags.join(" ").toLowerCase(), 4],
+    [(post.locationName ?? "").toLowerCase(), 3],
+    [post.caption.toLowerCase(), 2],
+    [post.authorDisplayName.toLowerCase(), 1],
+  ];
+}
+
+function scorePost(post: Post, tokens: string[]): number {
+  const fields = searchableFields(post);
+  return tokens.reduce(
+    (sum, token) => sum + fields.reduce((s, [text, weight]) => s + (text.includes(token) ? weight : 0), 0),
+    0,
+  );
+}
+
+/**
+ * Whether `post` matches `query` at all — substring, OR-semantics across
+ * query words, same fields/weights searchPosts ranks by, just collapsed to a
+ * boolean. An empty/whitespace-only query matches every post (a "no filter
+ * applied" vacuous match) — exactly what a caller filtering a list by an
+ * optional keyword (e.g. Map's search) wants when the query is blank, with
+ * no special-casing needed at the call site.
+ */
+export function postMatchesQuery(post: Post, query: string): boolean {
+  const tokens = tokenize(query);
+  if (tokens.length === 0) return true;
+  return scorePost(post, tokens) > 0;
+}
+
 /**
  * Client-side keyword search over the fields a post's author actually wrote —
  * title, tags, location, caption — plus the author's current display name
@@ -19,25 +60,11 @@ function toTimestamp(createdAt: string | undefined): number {
  * table to the client impractical.
  */
 export function searchPosts(posts: Post[], query: string): Post[] {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tokens = tokenize(query);
   if (tokens.length === 0) return [];
 
-  const scored = posts.map((post) => {
-    const fields: Array<[string, number]> = [
-      [(post.title ?? "").toLowerCase(), 5],
-      [post.tags.join(" ").toLowerCase(), 4],
-      [(post.locationName ?? "").toLowerCase(), 3],
-      [post.caption.toLowerCase(), 2],
-      [post.authorDisplayName.toLowerCase(), 1],
-    ];
-    const score = tokens.reduce(
-      (sum, token) => sum + fields.reduce((s, [text, weight]) => s + (text.includes(token) ? weight : 0), 0),
-      0,
-    );
-    return { post, score };
-  });
-
-  return scored
+  return posts
+    .map((post) => ({ post, score: scorePost(post, tokens) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;

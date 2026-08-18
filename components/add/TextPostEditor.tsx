@@ -33,6 +33,11 @@ export default function TextPostEditor() {
     // LoginScreen on its own — this guard just protects the submit itself.
     if (!user) return;
 
+    if (!title.trim()) {
+      setError("Add a title before publishing.");
+      return;
+    }
+
     if (!caption.trim()) {
       setError("Write something before publishing.");
       return;
@@ -46,10 +51,8 @@ export default function TextPostEditor() {
     setIsSubmitting(true);
 
     try {
-      const trimmedTitle = title.trim();
-
       await addPost({
-        title: trimmedTitle ? trimmedTitle : null,
+        title: title.trim(),
         caption: caption.trim(),
         tags,
         rating: 0,
@@ -85,7 +88,7 @@ export default function TextPostEditor() {
           className="w-full resize-none border-none bg-transparent text-base leading-relaxed text-stone-900 outline-none placeholder:text-stone-400"
         />
 
-        <TextTemplatePicker template={template} onTemplateChange={setTemplate} previewText={caption} />
+        <TextTemplatePicker template={template} onTemplateChange={setTemplate} title={title} />
 
         <TagChipInput tags={tags} onTagsChange={setTags} />
 
