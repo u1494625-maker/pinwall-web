@@ -61,7 +61,7 @@ function ChatIcon() {
 const EMPTY_COUNTS: UnreadNotificationCounts = { likeCount: 0, followCount: 0, commentCount: 0 };
 
 const categories = [
-  { countKey: "likeCount", label: "Likes", href: "/messages/likes", accent: "bg-rose-100 text-rose-500", Icon: HeartIcon },
+  { countKey: "likeCount", label: "Helpful", href: "/messages/likes", accent: "bg-rose-100 text-rose-500", Icon: HeartIcon },
   {
     countKey: "followCount",
     label: "New followers",

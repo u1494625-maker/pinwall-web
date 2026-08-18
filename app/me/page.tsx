@@ -10,7 +10,7 @@ import { getProfileStats, useLikedPostIds, useSavedPostIds, type ProfileStats } 
 import { useAllPosts } from "@/lib/posts";
 import { getProfile, type Profile } from "@/lib/profiles";
 
-const profileTabs = ["Posts", "Saved", "Liked"] as const;
+const profileTabs = ["Posts", "Saved", "Helpful"] as const;
 type ProfileTab = (typeof profileTabs)[number];
 
 const EMPTY_STATS: ProfileStats = { followingCount: 0, followersCount: 0, likesAndSavesCount: 0 };
@@ -59,7 +59,7 @@ function MeContent() {
   const likedPosts = posts.filter((post) => likedPostIds.includes(post.id));
   const gridPosts = activeTab === "Posts" ? myPosts : activeTab === "Saved" ? savedPosts : likedPosts;
   const emptyCopy =
-    activeTab === "Posts" ? "No posts yet." : activeTab === "Saved" ? "No saved posts yet." : "No liked posts yet.";
+    activeTab === "Posts" ? "No posts yet." : activeTab === "Saved" ? "No saved posts yet." : "Nothing marked helpful yet.";
 
   if (profileLoading || !profile) {
     return <ProfileHeaderSkeleton />;
@@ -90,17 +90,17 @@ function MeContent() {
 
       <div className="relative rounded-t-3xl bg-[#fbfaf7] pb-28 pt-11">
         <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
-          <div className="text-center">
+          <Link href="/me/following" className="text-center">
             <p className="text-base font-black text-stone-900">{stats.followingCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Following</p>
-          </div>
-          <div className="text-center">
+          </Link>
+          <Link href="/me/followers" className="text-center">
             <p className="text-base font-black text-stone-900">{stats.followersCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Followers</p>
-          </div>
+          </Link>
           <div className="text-center">
             <p className="text-base font-black text-stone-900">{stats.likesAndSavesCount}</p>
-            <p className="text-[11px] font-semibold text-stone-500">Likes &amp; Saves</p>
+            <p className="text-[11px] font-semibold text-stone-500">Helpful + Saves</p>
           </div>
         </div>
 

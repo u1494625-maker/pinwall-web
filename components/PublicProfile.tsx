@@ -143,7 +143,7 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
           </div>
           <div className="text-center">
             <p className="text-base font-black text-stone-900">{stats.likesAndSavesCount}</p>
-            <p className="text-[11px] font-semibold text-stone-500">Likes &amp; Saves</p>
+            <p className="text-[11px] font-semibold text-stone-500">Helpful + Saves</p>
           </div>
         </div>
 

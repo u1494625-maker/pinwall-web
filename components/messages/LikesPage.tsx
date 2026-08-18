@@ -49,7 +49,7 @@ export default function LikesPage() {
   }, [user]);
 
   return (
-    <NotificationsPageShell title="Likes">
+    <NotificationsPageShell title="Helpful">
       {loading ? (
         <div>
           {[0, 1, 2].map((key) => (
@@ -57,7 +57,7 @@ export default function LikesPage() {
           ))}
         </div>
       ) : notifications.length === 0 ? (
-        <p className="px-4 py-16 text-center text-sm text-stone-400">No likes yet.</p>
+        <p className="px-4 py-16 text-center text-sm text-stone-400">Nothing marked helpful yet.</p>
       ) : (
         <div>
           {notifications.map((notification) => (
@@ -88,7 +88,7 @@ export default function LikesPage() {
                 <Link href={`/profile/${notification.actorUserId}`} className="font-bold">
                   {notification.actorDisplayName}
                 </Link>{" "}
-                liked your post
+                found your post helpful
               </p>
               <p className="mt-0.5 text-[11px] text-stone-400">{formatRelativeDate(notification.createdAt)}</p>
             </NotificationRow>

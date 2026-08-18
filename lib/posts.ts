@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds } from "@/lib/profiles";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
+import type { TextTemplateId } from "@/lib/textTemplates";
 import type { MediaType, Post, PostMedia } from "@/types/post";
 
 /** snake_case shape of a `post_media` row, as returned by Supabase/PostgREST. */
@@ -33,11 +34,12 @@ type PostRow = {
   longitude: number | null;
   location_name: string | null;
   user_id: string | null;
+  text_template: string | null;
   post_media: PostMediaRow[] | null;
 };
 
 const POST_COLUMNS =
-  "id, created_at, title, caption, tags, rating, rating_count, show_on_map, latitude, longitude, location_name, user_id, post_media(*)";
+  "id, created_at, title, caption, tags, rating, rating_count, show_on_map, latitude, longitude, location_name, user_id, text_template, post_media(*)";
 
 function rowToPostMedia(row: PostMediaRow): PostMedia {
   return {
@@ -76,6 +78,10 @@ function rowToPost(row: PostRow): Post {
     locationName: row.location_name ?? undefined,
     userId: row.user_id ?? undefined,
     createdAt: row.created_at,
+    // posts_text_template_check (supabase/text_templates.sql) guarantees this
+    // is always one of the 4 known ids or null — same trusted-CHECK-cast
+    // pattern as media_type below.
+    textTemplate: (row.text_template as TextTemplateId | null) ?? undefined,
     media,
     // Overwritten by attachAuthorProfiles() right after fetch — this default
     // only matters if that call fails or the post has no owner, in which
@@ -352,6 +358,9 @@ export type NewPostInput = {
   userId?: string;
   /** Empty for text posts. media[0] (position 0) is the cover. */
   media: NewPostMediaInput[];
+  /** Set only when publishing a templated text post — omit entirely for a
+   *  media post. */
+  textTemplate?: TextTemplateId;
 };
 
 /**
@@ -380,6 +389,7 @@ export async function addPost(input: NewPostInput): Promise<number> {
       longitude: input.longitude ?? null,
       locationName: input.locationName ?? null,
       userId: input.userId ?? null,
+      textTemplate: input.textTemplate ?? null,
     },
     media_input: input.media.map((item) => ({
       type: item.type,

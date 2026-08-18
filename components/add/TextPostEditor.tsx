@@ -6,9 +6,11 @@ import ComposerBottomBar from "@/components/add/ComposerBottomBar";
 import ComposerTopBar from "@/components/add/ComposerTopBar";
 import PostLocationFields from "@/components/add/PostLocationFields";
 import TagChipInput from "@/components/add/TagChipInput";
+import TextTemplatePicker from "@/components/add/TextTemplatePicker";
 import TitleField from "@/components/add/TitleField";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { addPost } from "@/lib/posts";
+import { DEFAULT_TEXT_TEMPLATE, type TextTemplateId } from "@/lib/textTemplates";
 
 export default function TextPostEditor() {
   const router = useRouter();
@@ -16,6 +18,7 @@ export default function TextPostEditor() {
 
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
+  const [template, setTemplate] = useState<TextTemplateId>(DEFAULT_TEXT_TEMPLATE);
   const [tags, setTags] = useState<string[]>([]);
   const [showOnMap, setShowOnMap] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -56,6 +59,7 @@ export default function TextPostEditor() {
         longitude: showOnMap ? coords?.lng : undefined,
         userId: user.id,
         media: [],
+        textTemplate: template,
       });
 
       router.replace("/me");
@@ -80,6 +84,8 @@ export default function TextPostEditor() {
           placeholder="Share something useful…"
           className="w-full resize-none border-none bg-transparent text-base leading-relaxed text-stone-900 outline-none placeholder:text-stone-400"
         />
+
+        <TextTemplatePicker template={template} onTemplateChange={setTemplate} previewText={caption} />
 
         <TagChipInput tags={tags} onTagsChange={setTags} />
 

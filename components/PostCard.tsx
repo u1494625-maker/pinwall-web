@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import TextPostVisual from "@/components/post/TextPostVisual";
 import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
+import { paginateText } from "@/lib/textPagination";
 import type { Post } from "@/types/post";
 import DemoPhoto from "./DemoPhoto";
 import PostVideoTile from "./PostVideoTile";
@@ -27,9 +29,30 @@ function StackedPhotosIcon() {
 function PostCardMedia({ post }: { post: Post }) {
   const cover = post.media[0];
 
-  // Text posts have no real media — showing an artificial placeholder box here
-  // would just be dead space; the card stays naturally compact without one.
   if (!cover) {
+    // A templated text post (Phase 6A) — only ever page 1 here, matching
+    // "the masonry feed shows page 1 only"; PostDetail is where every page
+    // becomes visible. A pre-Phase-6A text post has no textTemplate, so it
+    // falls through to the plain title/author-only card exactly as before.
+    if (post.textTemplate) {
+      const pages = paginateText(post.caption, post.textTemplate);
+      return (
+        <div className="relative">
+          <TextPostVisual template={post.textTemplate} text={pages[0]} size="card" />
+          {pages.length > 1 ? (
+            <span
+              aria-hidden="true"
+              className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white"
+            >
+              1/{pages.length}
+            </span>
+          ) : null}
+        </div>
+      );
+    }
+
+    // A post with no media at all and no template — dead space would just
+    // be visual noise, so the card stays naturally compact without one.
     return null;
   }
 
@@ -102,7 +125,7 @@ export default function PostCard({ post }: PostCardProps) {
         <PostCardMedia post={post} />
 
         <div className="px-2.5 pt-2.5">
-          <h2 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">
+          <h2 className="text-[13px] font-bold leading-snug text-stone-900">
             {getDisplayTitle(post)}
           </h2>
         </div>

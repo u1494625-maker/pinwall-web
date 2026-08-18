@@ -8,6 +8,7 @@ import PostMediaGallery from "@/components/PostMediaGallery";
 import CommentThread from "@/components/post/CommentThread";
 import PostManageSheet from "@/components/post/PostManageSheet";
 import ReportModal from "@/components/post/ReportModal";
+import TextPostPages from "@/components/post/TextPostPages";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
@@ -543,13 +544,19 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         </div>
       ) : null}
 
-      <PostMediaGallery
-        media={post.media}
-        title={getDisplayTitle(post)}
-        initialMediaId={initialMediaId}
-        onActiveMediaChange={setActiveMediaOverride}
-        viewOnMapTarget={viewOnMapTarget}
-      />
+      {post.media.length === 0 && post.textTemplate ? (
+        <div className="px-5 pt-5">
+          <TextPostPages template={post.textTemplate} caption={post.caption} />
+        </div>
+      ) : (
+        <PostMediaGallery
+          media={post.media}
+          title={getDisplayTitle(post)}
+          initialMediaId={initialMediaId}
+          onActiveMediaChange={setActiveMediaOverride}
+          viewOnMapTarget={viewOnMapTarget}
+        />
+      )}
 
       <div className="px-5 pt-5">
         {post.media.length === 0 && viewOnMapTarget ? (
@@ -603,7 +610,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
 
       {isOwner ? (
         <PostManageSheet
-          key={manageSheetKey}
+          key={`manage-sheet-${manageSheetKey}`}
           open={manageSheetOpen}
           post={post}
           onClose={() => setManageSheetOpen(false)}
@@ -620,30 +627,37 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
               setManageSheetOpen(true);
             }}
             aria-label="Manage post"
-            className="flex flex-1 items-center gap-1.5 rounded-full bg-stone-100 px-4 py-2.5 text-sm font-bold text-stone-600"
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-stone-100 px-4 py-2.5 text-sm font-bold text-stone-600"
           >
             <MoreIcon />
-            Manage post
+            <span className="truncate">Manage post</span>
           </button>
         ) : (
-          <input
-            type="text"
-            readOnly
-            onClick={(event) => {
-              event.currentTarget.blur();
-              scrollToComments();
-            }}
-            placeholder="Say something…"
-            aria-label="Add a comment"
-            className="flex-1 cursor-pointer rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none"
-          />
+          // <input> resists flex-shrink even with min-w-0 on itself (a
+          // replaced element's intrinsic sizing isn't governed by the flex
+          // algorithm the same way a <div>/<button> is) — wrapping it in a
+          // plain shrinkable div and letting the input fill that at w-full
+          // sidesteps the quirk entirely.
+          <div className="min-w-0 flex-1">
+            <input
+              type="text"
+              readOnly
+              onClick={(event) => {
+                event.currentTarget.blur();
+                scrollToComments();
+              }}
+              placeholder="Say something…"
+              aria-label="Add a comment"
+              className="w-full cursor-pointer rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none"
+            />
+          </div>
         )}
 
         <button
           type="button"
           onClick={handleToggleLike}
           aria-pressed={isLiked}
-          aria-label={isLiked ? "Unlike" : "Like"}
+          aria-label={isLiked ? "Not helpful" : "Helpful"}
           className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
         >
           <span className={isLiked ? "text-red-500" : "text-stone-500"}>
@@ -688,7 +702,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
       </div>
 
       <ReportModal
-        key={reportModalKey}
+        key={`report-modal-${reportModalKey}`}
         open={reportModalOpen}
         targetLabel={reportTarget.type}
         onClose={() => setReportModalOpen(false)}

@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import NotificationRow from "@/components/messages/NotificationRow";
 import NotificationsPageShell from "@/components/messages/NotificationsPageShell";
+import FollowActionButton from "@/components/profile/FollowActionButton";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { followUser, unfollowUser, useFollowedUserIds } from "@/lib/interactions";
+import { useFollowedUserIds } from "@/lib/interactions";
 import {
   getFollowNotifications,
   markNotificationsRead,
@@ -20,45 +21,6 @@ function FollowerRowSkeleton() {
       <div className="size-11 shrink-0 animate-pulse rounded-full bg-stone-200" />
       <div className="h-3.5 flex-1 animate-pulse rounded bg-stone-200" />
     </div>
-  );
-}
-
-type FollowBackButtonProps = {
-  currentUserId: string;
-  actorUserId: string;
-  isFollowing: boolean;
-};
-
-/** Reuses the exact same followUser/unfollowUser + optimistic-override
- *  pattern PublicProfile.tsx already uses for its own Follow button — no
- *  second follow implementation, just this table row's own local state. */
-function FollowBackButton({ currentUserId, actorUserId, isFollowing: isFollowingFromQuery }: FollowBackButtonProps) {
-  const [override, setOverride] = useState<boolean | null>(null);
-  const isFollowing = override ?? isFollowingFromQuery;
-
-  async function handleClick() {
-    const wasFollowing = isFollowing;
-    setOverride(!wasFollowing);
-    try {
-      if (wasFollowing) await unfollowUser(currentUserId, actorUserId);
-      else await followUser(currentUserId, actorUserId);
-    } catch {
-      setOverride(wasFollowing);
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      aria-pressed={isFollowing}
-      aria-label={isFollowing ? "Unfollow" : "Follow back"}
-      className={`rounded-full px-3.5 py-1.5 text-xs font-bold ${
-        isFollowing ? "bg-stone-100 text-stone-500" : "bg-stone-900 text-white"
-      }`}
-    >
-      {isFollowing ? "Following" : "Follow back"}
-    </button>
   );
 }
 
@@ -111,9 +73,9 @@ export default function FollowersPage() {
               actorAvatarUrl={notification.actorAvatarUrl}
               rightSlot={
                 user ? (
-                  <FollowBackButton
+                  <FollowActionButton
                     currentUserId={user.id}
-                    actorUserId={notification.actorUserId}
+                    targetUserId={notification.actorUserId}
                     isFollowing={followedIdSet.has(notification.actorUserId)}
                   />
                 ) : undefined

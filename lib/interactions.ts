@@ -203,6 +203,48 @@ export function useFollowedUserIds(): { ids: string[]; loading: boolean } {
   return { ids, loading };
 }
 
+/** The user IDs of everyone currently following the signed-in viewer — the
+ *  mirror of useFollowedUserIds, used by the real Followers list (not
+ *  notification history). Empty (not an error) while signed out. */
+export function useFollowerUserIds(): { ids: string[]; loading: boolean } {
+  const { user } = useAuth();
+  const [ids, setIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const enabled = Boolean(user && isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!enabled || !user) return;
+    const followingId = user.id;
+
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      const { data, error } = await supabase.from("follows").select("follower_user_id").eq("following_user_id", followingId);
+      if (cancelled) return;
+      if (error) {
+        console.error("Failed to load followers from Supabase:", error.message);
+        setIds([]);
+      } else {
+        setIds((data ?? []).map((row) => row.follower_user_id as string));
+      }
+      setLoading(false);
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, user]);
+
+  if (!enabled) {
+    return { ids: [], loading: false };
+  }
+
+  return { ids, loading };
+}
+
 export type ProfileStats = {
   followingCount: number;
   followersCount: number;

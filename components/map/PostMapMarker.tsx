@@ -1,4 +1,6 @@
 import DemoPhoto from "@/components/DemoPhoto";
+import TextPostVisual from "@/components/post/TextPostVisual";
+import type { TextTemplateId } from "@/lib/textTemplates";
 import type { PostMedia } from "@/types/post";
 
 type PostMapMarkerProps = {
@@ -10,6 +12,18 @@ type PostMapMarkerProps = {
   title: string;
   /** True for the post targeted via "View on Map" — a lightweight visual cue only, not a redesign. */
   highlighted?: boolean;
+  /** Set only for a templated text post (media.length === 0 && textTemplate
+   *  exists) — pre-resolved by the caller (MapPage.tsx computes
+   *  paginateText(post.caption, post.textTemplate) once), the same
+   *  "resolved, ready-to-render" convention `title` already follows. Both
+   *  left undefined for a media post or a legacy text post with no
+   *  template, in which case the generic pencil placeholder still renders. */
+  textTemplate?: TextTemplateId;
+  text?: string;
+  /** > 1 when the post's caption paginates into more than one page — shows a
+   *  small "N" page-count badge, matching PostCard's own indicator. Map only
+   *  ever shows page 1's content here; there is no in-marker carousel. */
+  pageCount?: number;
 };
 
 /**
@@ -18,11 +32,15 @@ type PostMapMarkerProps = {
  * and no live <video> (a map pin can't sensibly host a playing video element).
  * `highlighted`'s pulse relies on the plain CSS `animate-ping` utility, which
  * still works in static markup since no JS/React is involved in the animation.
+ * TextPostVisual is equally hook-free, so the same mechanism covers it.
  */
 export default function PostMapMarker({
   cover,
   title,
   highlighted = false,
+  textTemplate,
+  text,
+  pageCount,
 }: PostMapMarkerProps) {
   return (
     <div className="flex w-20 flex-col items-center pb-1.5">
@@ -46,6 +64,15 @@ export default function PostMapMarker({
             </div>
           ) : cover?.type === "video" ? (
             <div className="grid aspect-square w-full place-items-center bg-stone-800 text-base text-white">▶</div>
+          ) : textTemplate && text != null ? (
+            <div className="relative aspect-square w-full">
+              <TextPostVisual template={textTemplate} text={text} size="map" />
+              {pageCount && pageCount > 1 ? (
+                <span className="absolute bottom-0.5 right-0.5 rounded-full bg-black/60 px-1 py-px text-[7px] font-bold leading-none text-white">
+                  1/{pageCount}
+                </span>
+              ) : null}
+            </div>
           ) : (
             <div className="grid aspect-square w-full place-items-center bg-orange-100 text-base text-orange-600">
               ✎
@@ -53,7 +80,11 @@ export default function PostMapMarker({
           )}
         </div>
       </div>
-      <span className="mt-1 line-clamp-1 max-w-[5.5rem] rounded-full bg-white/95 px-2 py-0.5 text-center text-[10px] font-bold leading-tight text-stone-900 shadow">
+      {/* No line-clamp: a title never gets silently cut off here. Bounded
+          instead by TitleField's own 40-char input cap plus a deliberately
+          moderate max-width, so a long title wraps to a few short lines
+          rather than either hiding text or growing without limit. */}
+      <span className="mt-1 max-w-[6.5rem] rounded-lg bg-white/95 px-2 py-0.5 text-center text-[10px] font-bold leading-tight text-stone-900 shadow">
         {title}
       </span>
     </div>

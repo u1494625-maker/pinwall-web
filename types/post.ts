@@ -1,3 +1,5 @@
+import type { TextTemplateId } from "@/lib/textTemplates";
+
 export type MediaType = "image" | "video";
 
 export type PostMedia = {
@@ -47,6 +49,11 @@ export type Post = {
   authorAvatarUrl?: string;
   /** Ordered by position; media[0] is always the cover. Empty for text posts. */
   media: PostMedia[];
+  /** Set only on a templated text post (media is empty); undefined for a
+   *  media post and for a text post published before Phase 6A. Chosen once
+   *  at publish time — the same template applies to every visual page a
+   *  long caption paginates into (see lib/textPagination.ts). */
+  textTemplate?: TextTemplateId;
   /** Real aggregates from post_likes/post_saves/comments, fetched via the
    *  get_post_engagement RPC — never a raw liker/saver ID list. */
   likeCount: number;

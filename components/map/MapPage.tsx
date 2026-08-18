@@ -9,6 +9,7 @@ import { useAllPosts } from "@/lib/posts";
 import { buildClusterIndex, buildMapItems, getVisibleMapFeatures, pickClusterCoverImage, type MapItemIndex } from "@/lib/map/clustering";
 import { readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
+import { paginateText } from "@/lib/textPagination";
 import type { Post } from "@/types/post";
 import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
 import PostMapMarker from "./PostMapMarker";
@@ -179,6 +180,12 @@ export default function MapPage() {
         const longitude = mediaId != null ? cover?.longitude : post.longitude;
         if (latitude == null || longitude == null) continue;
 
+        // Templated text post (no media at all) — resolved here, once, the
+        // same "caller pre-resolves it" convention title already follows.
+        // Page 1 only; a legacy text post (no textTemplate) leaves both
+        // undefined and PostMapMarker falls back to its existing placeholder.
+        const textPages = !cover && post.textTemplate ? paginateText(post.caption, post.textTemplate) : null;
+
         const icon = leaflet.divIcon({
           html: renderToStaticMarkup(
             <PostMapMarker
@@ -187,6 +194,9 @@ export default function MapPage() {
               highlighted={
                 highlightedItemRef.current?.postId === postId && highlightedItemRef.current?.mediaId === mediaId
               }
+              textTemplate={textPages ? post.textTemplate : undefined}
+              text={textPages?.[0]}
+              pageCount={textPages?.length}
             />,
           ),
           className: "",
