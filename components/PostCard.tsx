@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import TextPostVisual from "@/components/post/TextPostVisual";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
+import { logDetailClickEvent } from "@/lib/recommendation/events";
 import type { Post } from "@/types/post";
 import DemoPhoto from "./DemoPhoto";
 import PostVideoTile from "./PostVideoTile";
@@ -107,9 +109,21 @@ function PostCardAuthor({ post }: { post: Post }) {
 }
 
 export default function PostCard({ post }: PostCardProps) {
+  const { user } = useAuth();
+
+  // Fires only on a real click on this link — never on mount, refresh, or a
+  // ?postId= deep link, since those never trigger a click event here at
+  // all. Fire-and-forget: never awaited, so a slow/failed insert can never
+  // delay the navigation the click already triggers.
+  function handleOpen() {
+    if (user) {
+      logDetailClickEvent(user.id, post.id);
+    }
+  }
+
   return (
     <article className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]">
-      <Link href={`/post/${post.id}`}>
+      <Link href={`/post/${post.id}`} onClick={handleOpen}>
         <PostCardMedia post={post} />
 
         {/* The templated-text cover above already shows the title — repeating

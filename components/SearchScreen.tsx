@@ -4,12 +4,15 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import MasonryFeed, { FeedSkeleton } from "@/components/MasonryFeed";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { logSearchQueryEvent } from "@/lib/recommendation/events";
 import { searchPosts } from "@/lib/search";
 import { useAllPostsState } from "@/lib/posts";
 
 export default function SearchScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
 
   const q = searchParams.get("q") ?? "";
   const trimmedQuery = q.trim();
@@ -29,6 +32,14 @@ export default function SearchScreen() {
     event.preventDefault();
     const next = draft.trim();
     if (!next) return;
+
+    // Fire-and-forget, signed-in only — never awaited, so a slow/failed
+    // insert can never delay navigation. Logged on every explicit submit
+    // (never on keystrokes), including a repeat of the same query — repeated
+    // interest is a real signal, not something to deduplicate away.
+    if (user) {
+      logSearchQueryEvent(user.id, next);
+    }
 
     // replace (not push) so repeated searches update one history entry
     // instead of stacking; URLSearchParams serializes spaces as "+".

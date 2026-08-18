@@ -4,11 +4,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type * as LType from "leaflet";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { getDisplayTitle } from "@/lib/postDisplay";
 import { useAllPosts } from "@/lib/posts";
 import { buildClusterIndex, buildMapItems, getVisibleMapFeatures, pickClusterCoverImage, type MapItemIndex } from "@/lib/map/clustering";
 import { readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
+import { logMapInteractionEvent } from "@/lib/recommendation/events";
 import { postMatchesQuery } from "@/lib/search";
 import type { Post } from "@/types/post";
 import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
@@ -69,6 +71,19 @@ function viewportFromMap(map: LType.Map): MapViewport {
 
 export default function MapPage() {
   const allPosts = useAllPosts();
+  const { user } = useAuth();
+  // Read inside the marker click handler (bound once, imperatively, inside
+  // updateMarkers below) instead of adding `user` to updateMarkers's own
+  // dependency array — the auth session object can get a new reference on a
+  // background token refresh even for the same signed-in user, and
+  // updateMarkers changing identity would retrigger the marker-layer
+  // rebuild effect further down, which has no reason to run just because a
+  // token refreshed. Same ref-around-a-Leaflet-handler pattern this file
+  // already uses for highlightedItemRef/suppressNextViewportSaveRef.
+  const currentUserIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    currentUserIdRef.current = user?.id;
+  }, [user]);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -224,6 +239,14 @@ export default function MapPage() {
         leaflet
           .marker([latitude, longitude], { icon })
           .on("click", () => {
+            // Direct single-marker -> PostDetail open only — a cluster ->
+            // cluster-feed -> PostCard open goes through PostCard's own
+            // detail_click instrumentation instead (see the plan's
+            // Decisions on why this isn't split into a separate signal).
+            const userId = currentUserIdRef.current;
+            if (userId) {
+              logMapInteractionEvent(userId, postId);
+            }
             router.push(mediaId != null ? `/post/${postId}?mediaId=${mediaId}` : `/post/${postId}`);
           })
           .addTo(layer);
