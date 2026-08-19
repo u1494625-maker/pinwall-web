@@ -31,10 +31,10 @@ export default function LoginScreen() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-8 text-center">
       <p className="text-2xl font-black tracking-[-0.06em] text-stone-900">
-        PinWall<span className="text-orange-500">.</span>
+        Kavanaka<span className="text-orange-500">.</span>
       </p>
 
-      <h1 className="mt-10 text-2xl font-black tracking-tight text-stone-900">Welcome to Pinwall</h1>
+      <h1 className="mt-10 text-2xl font-black tracking-tight text-stone-900">Welcome to Kavanaka</h1>
       <p className="mt-3 max-w-xs text-sm leading-6 text-stone-500">
         Discover authentic places shared by your community.
       </p>

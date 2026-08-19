@@ -575,7 +575,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         ) : null}
 
         <p
-          className={`text-stone-600 ${post.textTemplate ? "mt-4" : "mt-3"} ${post.media.length === 0 ? "text-base leading-8" : "text-sm leading-6"}`}
+          className={`whitespace-pre-wrap text-stone-600 ${post.textTemplate ? "mt-4" : "mt-3"} ${post.media.length === 0 ? "text-base leading-8" : "text-sm leading-6"}`}
         >
           {post.caption}
         </p>

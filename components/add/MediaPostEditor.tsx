@@ -609,7 +609,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           value={caption}
           onChange={(event) => setCaption(event.target.value)}
           rows={6}
-          placeholder="Share something useful…"
+          placeholder="Share something…"
           className="w-full resize-none border-none bg-transparent text-base leading-relaxed text-stone-900 outline-none placeholder:text-stone-400"
         />
 
