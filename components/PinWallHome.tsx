@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
+import ExploreRefreshButton from "./ExploreRefreshButton";
 import MasonryFeed, { FeedSkeleton } from "./MasonryFeed";
-import RefreshIndicator from "./RefreshIndicator";
 import TopBar from "./TopBar";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useFollowedUserIds } from "@/lib/interactions";
 import { filterPostsInBounds, useSavedMapViewport } from "@/lib/map/viewport";
 import { getPostsByUserIds, useAllPostsState } from "@/lib/posts";
 import { useExploreFeed } from "@/lib/recommendation/useExploreFeed";
-import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import type { Post } from "@/types/post";
 
 type HomeTab = "Following" | "Explore" | "Maps";
@@ -116,23 +115,9 @@ export default function PinWallHome() {
   const {
     posts: exploreFeedPosts,
     loading: exploreLoading,
+    refreshing: exploreRefreshing,
     refresh: refreshExplore,
   } = useExploreFeed(posts, postsLoading);
-
-  // The whole page scrolls (no nested scroll container), so pull-to-refresh
-  // listens on this same <main> ref. Only meaningful on the Explore tab —
-  // pulling down while on Following/Maps is a no-op, checked inside the
-  // callback (not by conditionally attaching the hook, since hooks must run
-  // unconditionally) so mainRef stays a single stable ref regardless of tab.
-  // usePullToRefresh re-syncs its internal ref to this closure on every
-  // render, so it always sees the current selectedTab by the time a drag
-  // actually ends.
-  const mainRef = useRef<HTMLElement | null>(null);
-  const { pullDistance } = usePullToRefresh(mainRef, () => {
-    if (selectedTab === "Explore") {
-      refreshExplore();
-    }
-  });
 
   function handleSelectTab(tab: string) {
     if (isValidHomeTab(tab)) {
@@ -209,15 +194,14 @@ export default function PinWallHome() {
   }
 
   return (
-    <main
-      ref={mainRef}
-      className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]"
-    >
+    <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <TopBar>
         <CategoryChips selectedTab={selectedTab} onSelectTab={handleSelectTab} />
       </TopBar>
 
-      {!isFollowingTab && !isMapsTab ? <RefreshIndicator pullDistance={pullDistance} /> : null}
+      {selectedTab === "Explore" ? (
+        <ExploreRefreshButton onRefresh={refreshExplore} refreshing={exploreRefreshing} />
+      ) : null}
 
       {isFollowingTab ? (
         followedLoading || followingPostsLoading ? (

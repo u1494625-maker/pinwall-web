@@ -16,10 +16,14 @@ import type { Post } from "@/types/post";
 import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
 import PostMapMarker from "./PostMapMarker";
 
-// Neutral starting point when no viewport has been saved yet and there's no post
-// to center on — same convention LocationPicker uses for "no location yet".
-const FALLBACK_CENTER = { lat: 20, lng: 0 };
-const FALLBACK_ZOOM = 2;
+// Starting point when no viewport has been saved yet and there's no post to
+// center on — a campus-scale view of UC Berkeley (Sather Tower/Sproul Plaza
+// area), matching Kavanaka's campus-discovery focus, rather than a neutral
+// world view. Only ever used once per session: the mount effect below saves
+// whatever it opens at as the new "saved" viewport immediately afterward, so
+// this is purely the seed for a first-ever Map visit, not a recurring reset.
+const FALLBACK_CENTER = { lat: 37.8719, lng: -122.2585 };
+const FALLBACK_ZOOM = 15;
 const MOVE_DEBOUNCE_MS = 200;
 // Matches clustering.ts's Supercluster maxZoom — close enough that a targeted
 // post is shown as an individual pin rather than folded into a cluster.

@@ -583,12 +583,13 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         {post.tags.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-1.5">
             {post.tags.map((tag) => (
-              <span
+              <Link
                 key={tag}
+                href={`/tag/${encodeURIComponent(tag)}`}
                 className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700"
               >
                 #{tag}
-              </span>
+              </Link>
             ))}
           </div>
         ) : null}

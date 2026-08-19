@@ -17,10 +17,14 @@ type TemplateVisualProps = {
   size: TextPostVisualSize;
 };
 
+// Headline-style sizing: clearly larger than body text, with a tight
+// (rather than relaxed) leading so a short title reads as a designed cover,
+// not a paragraph. "map" stays small (a fixed 80x80px marker box) but is
+// still bumped up from its previous near-illegible size.
 const BODY_TEXT_SIZE: Record<TextPostVisualSize, string> = {
-  card: "text-[15px] leading-snug",
-  detail: "text-xl leading-relaxed",
-  map: "text-[6px] leading-[7px]",
+  card: "text-2xl leading-tight",
+  detail: "text-3xl leading-tight",
+  map: "text-[8px] leading-[9px]",
 };
 
 // Every template is portrait (4:5) at card/detail size, but a Map marker is a
@@ -41,8 +45,8 @@ function NoteVisual({ text, size }: TemplateVisualProps) {
 
   return (
     <div className={`relative flex ${ASPECT_CLASS[size]} w-full flex-col overflow-hidden rounded-2xl bg-amber-400 ${outerPad}`}>
-      <div className={`relative flex min-h-0 flex-1 flex-col rounded-xl bg-[#fffdf8] shadow-[0_4px_14px_rgba(120,90,20,0.18)] ${paperPad}`}>
-        <p className={`min-h-0 flex-1 overflow-hidden whitespace-pre-wrap break-words font-semibold text-stone-800 ${BODY_TEXT_SIZE[size]}`}>
+      <div className={`relative flex min-h-0 flex-1 flex-col justify-center rounded-xl bg-[#fffdf8] shadow-[0_4px_14px_rgba(120,90,20,0.18)] ${paperPad}`}>
+        <p className={`overflow-hidden whitespace-pre-wrap break-words text-center font-bold text-stone-800 ${BODY_TEXT_SIZE[size]}`}>
           {text}
         </p>
       </div>
@@ -75,11 +79,11 @@ function QuoteVisual({ text, size }: TemplateVisualProps) {
   const markSize = size === "card" ? "text-4xl" : size === "map" ? "text-xs" : "text-6xl";
 
   return (
-    <div className={`flex ${ASPECT_CLASS[size]} w-full flex-col justify-center rounded-2xl bg-[#f3ead9] ${pad}`}>
+    <div className={`flex ${ASPECT_CLASS[size]} w-full flex-col justify-center overflow-hidden rounded-2xl bg-[#f3ead9] ${pad}`}>
       <span className={`${markSize} font-black leading-none text-[#8a3b2c]/70`} aria-hidden="true">
         &ldquo;
       </span>
-      <p className={`whitespace-pre-wrap break-words text-center font-bold text-[#7a2e22] ${BODY_TEXT_SIZE[size]}`}>{text}</p>
+      <p className={`whitespace-pre-wrap break-words text-center font-black text-[#7a2e22] ${BODY_TEXT_SIZE[size]}`}>{text}</p>
       <span className={`self-end ${markSize} font-black leading-none text-[#8a3b2c]/50`} aria-hidden="true">
         &rdquo;
       </span>
@@ -89,18 +93,24 @@ function QuoteVisual({ text, size }: TemplateVisualProps) {
 
 function MemoVisual({ text, size }: TemplateVisualProps) {
   const pad = size === "card" ? "px-4 pb-4 pt-5" : size === "map" ? "px-1.5 pb-1.5 pt-2" : "px-7 pb-7 pt-9";
-  const lineHeightPx = size === "card" ? 24 : size === "map" ? 8 : 32;
+  // Kept in lockstep with BODY_TEXT_SIZE's leading for each size — the ruled
+  // background lines are generated from this value, so it must track
+  // whatever line-height the headline text actually renders at.
+  const lineHeightPx = size === "card" ? 30 : size === "map" ? 9 : 38;
 
   return (
     <div
-      className={`flex ${ASPECT_CLASS[size]} w-full flex-col overflow-hidden rounded-2xl bg-white ${pad}`}
+      className={`flex ${ASPECT_CLASS[size]} w-full flex-col justify-center overflow-hidden rounded-2xl bg-white ${pad}`}
       style={{
         backgroundImage: `linear-gradient(#eceae4 1px, transparent 1px), linear-gradient(#d8d5cc 1px, transparent 1px)`,
         backgroundSize: `100% ${lineHeightPx}px, 100% ${lineHeightPx * 5}px`,
         backgroundPosition: `0 ${lineHeightPx - 1}px, 0 ${lineHeightPx - 1}px`,
       }}
     >
-      <p className={`min-h-0 flex-1 overflow-hidden whitespace-pre-wrap break-words font-medium text-stone-700 ${BODY_TEXT_SIZE[size]}`} style={{ lineHeight: `${lineHeightPx}px` }}>
+      <p
+        className={`overflow-hidden whitespace-pre-wrap break-words text-center font-semibold text-stone-700 ${BODY_TEXT_SIZE[size]}`}
+        style={{ lineHeight: `${lineHeightPx}px` }}
+      >
         {text}
       </p>
     </div>
@@ -112,11 +122,11 @@ function BasicVisual({ text, size }: TemplateVisualProps) {
   const markSize = size === "card" ? "text-2xl" : size === "map" ? "text-xs" : "text-4xl";
 
   return (
-    <div className={`relative flex ${ASPECT_CLASS[size]} w-full flex-col justify-center rounded-2xl bg-sky-200 ${pad}`}>
-      <span className={`mb-2 ${markSize} font-black leading-none text-sky-400`} aria-hidden="true">
+    <div className={`relative flex ${ASPECT_CLASS[size]} w-full flex-col justify-center overflow-hidden rounded-2xl bg-sky-200 ${pad}`}>
+      <span className={`mb-2 text-center ${markSize} font-black leading-none text-sky-400`} aria-hidden="true">
         &ldquo;
       </span>
-      <p className={`whitespace-pre-wrap break-words font-bold text-stone-800 ${BODY_TEXT_SIZE[size]}`}>{text}</p>
+      <p className={`whitespace-pre-wrap break-words text-center font-black text-stone-800 ${BODY_TEXT_SIZE[size]}`}>{text}</p>
       <span aria-hidden="true" className="absolute bottom-4 right-4 h-1 w-6 rounded-full bg-sky-400" />
     </div>
   );
