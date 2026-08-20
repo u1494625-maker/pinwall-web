@@ -112,7 +112,7 @@ function CommentRow({
         <div className="mt-1 flex items-center gap-3">
           <span className="text-[11px] text-stone-400">{formatRelativeDate(comment.createdAt)}</span>
           {!isMine ? (
-            <button type="button" onClick={() => onReply(comment)} className="text-[11px] font-bold text-stone-500">
+            <button type="button" onClick={() => onReply(comment)} className="text-[11px]! leading-[1.5]! text-stone-500">
               Reply
             </button>
           ) : null}

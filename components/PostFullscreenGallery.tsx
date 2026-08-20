@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import { usePointerTap } from "@/components/PostMediaGallery";
 import type { PostMedia } from "@/types/post";
@@ -47,9 +47,17 @@ export default function PostFullscreenGallery({
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // Only measurable once the dialog is actually open — <dialog> is
+      // `display: none` (and scrollRef.current.clientWidth is 0) right up
+      // until showModal() flips its `open` attribute, so this must run
+      // after that call, not in a useLayoutEffect racing ahead of it.
+      const el = scrollRef.current;
+      if (el) el.scrollLeft = initialIndex * el.clientWidth;
+    }
     if (!open && dialog.open) dialog.close();
-  }, [open]);
+  }, [open, initialIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -66,15 +74,6 @@ export default function PostFullscreenGallery({
       window.scrollTo(0, scrollY);
     };
   }, [open]);
-
-  // The caller (PhotoGallery/SinglePhotoMedia) bumps this component's `key`
-  // every time it opens, so `currentIndex` above already starts fresh at
-  // `initialIndex` on each open via a real remount — no setState-in-effect
-  // needed here, just the imperative scroll position to match it.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollLeft = initialIndex * el.clientWidth;
-  }, [initialIndex]);
 
   function handleScroll() {
     const el = scrollRef.current;
