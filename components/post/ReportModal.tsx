@@ -98,7 +98,7 @@ export default function ReportModal({ open, targetLabel, onClose, onSubmit }: Re
           maxLength={MAX_REPORT_REASON_LENGTH}
           rows={3}
           placeholder="Tell us what's wrong…"
-          className="mt-1.5 w-full resize-none rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
+          className="mt-1.5 w-full resize-none rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-[16px] text-stone-900 outline-none placeholder:text-stone-400 md:text-sm"
         />
 
         {error ? <p className="mt-3 text-sm font-semibold text-red-600">{error}</p> : null}

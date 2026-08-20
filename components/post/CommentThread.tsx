@@ -291,7 +291,7 @@ export default function CommentThread({
             onChange={(event) => setCommentInput(event.target.value)}
             placeholder={placeholder}
             aria-label={replyTarget ? `Reply to ${replyTarget.authorDisplayName}` : "Add a comment"}
-            className="flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
+            className="min-w-0 flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-[16px] text-stone-900 outline-none placeholder:text-stone-400 md:text-sm"
           />
           <button
             type="submit"

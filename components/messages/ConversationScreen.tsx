@@ -244,7 +244,7 @@ export default function ConversationScreen({ conversationId }: ConversationScree
             rows={1}
             maxLength={MAX_MESSAGE_LENGTH}
             aria-label="Message"
-            className="max-h-28 flex-1 resize-none rounded-2xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
+            className="max-h-28 min-w-0 flex-1 resize-none rounded-2xl border border-stone-200 bg-white px-3.5 py-2.5 text-[16px] text-stone-900 outline-none placeholder:text-stone-400 md:text-sm"
           />
           <button
             type="button"

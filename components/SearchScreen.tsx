@@ -70,7 +70,7 @@ export default function SearchScreen() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Search cafés, study spots, food..."
-              className="min-w-0 flex-1 bg-transparent text-sm text-stone-900 outline-none placeholder:text-stone-500"
+              className="min-w-0 flex-1 bg-transparent text-[16px] text-stone-900 outline-none placeholder:text-stone-500 md:text-sm"
             />
           </form>
         </div>

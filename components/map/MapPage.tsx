@@ -504,7 +504,7 @@ export default function MapPage() {
               onChange={(event) => handleSearchQueryChange(event.target.value)}
               placeholder="Search posts…"
               aria-label="Search map posts"
-              className="w-20 min-w-0 bg-transparent text-[12px] text-stone-900 outline-none placeholder:text-stone-400"
+              className="w-20 min-w-0 bg-transparent text-[16px] text-stone-900 outline-none placeholder:text-stone-400 md:text-[12px]"
             />
             <button
               type="button"

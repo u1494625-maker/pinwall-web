@@ -70,7 +70,7 @@ export default function TagChipInput({ tags, onTagsChange }: TagChipInputProps) 
         onKeyDown={handleKeyDown}
         onBlur={commitDraft}
         placeholder={tags.length === 0 ? "# Topic" : "Add another…"}
-        className="min-w-[6rem] flex-1 bg-transparent text-sm text-stone-900 outline-none placeholder:text-stone-400"
+        className="min-w-[6rem] flex-1 bg-transparent text-[16px] text-stone-900 outline-none placeholder:text-stone-400 md:text-sm"
       />
     </div>
   );

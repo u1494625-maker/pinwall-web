@@ -87,7 +87,7 @@ export default function NewMessageScreen() {
           placeholder="Search by name"
           aria-label="Search by name"
           autoFocus
-          className="w-full rounded-full border border-stone-200 bg-white px-4 py-2.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
+          className="w-full rounded-full border border-stone-200 bg-white px-4 py-2.5 text-[16px] text-stone-900 outline-none placeholder:text-stone-400 md:text-sm"
         />
       </div>
 
