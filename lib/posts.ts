@@ -471,6 +471,86 @@ export async function updatePost(id: number, fields: PostEditableFields): Promis
   }
 }
 
+/** post_media row shape Edit's Save sends for a photo post — the full final
+ *  ordered list, in on-screen order (position is assigned from array index
+ *  by the caller). `id` present = a retained existing row, possibly moved
+ *  and/or relocated; `id` absent = a newly-uploaded photo. Any existing
+ *  post_media row for the post whose id doesn't appear in this list at all
+ *  is deleted by update_post_with_media. */
+export type EditPostMediaInput = {
+  id?: number;
+  type: MediaType;
+  url: string;
+  storagePath: string;
+  aspectRatio: string | null;
+  position: number;
+  thumbnailUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+};
+
+export type EditPostFieldsInput = {
+  title: string | null;
+  caption: string;
+  tags: string[];
+  showOnMap: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  locationName: string | null;
+};
+
+/**
+ * Atomically synchronizes a photo post's editable fields AND its full media
+ * list (adds/deletes/reorders/relocations) via the update_post_with_media RPC
+ * (supabase/post_media_edit.sql) — one Postgres transaction, so there is
+ * never a window where the post row is updated but media isn't, or where
+ * media is only partially synchronized. Storage cleanup for deleted media and
+ * rollback of newly-uploaded files on failure are the caller's responsibility
+ * (EditPostForm) — Storage isn't reachable from SQL, mirroring how
+ * addPost/uploadPostMedia already split those concerns for creation.
+ */
+export async function updatePostWithMedia(
+  postId: number,
+  fields: EditPostFieldsInput,
+  media: EditPostMediaInput[],
+): Promise<void> {
+  if (!isSupabaseConfigured) {
+    throw new Error(
+      "Supabase isn't configured — add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local.",
+    );
+  }
+
+  const { error } = await supabase.rpc("update_post_with_media", {
+    p_post_id: postId,
+    post_input: {
+      title: fields.title,
+      caption: fields.caption,
+      tags: fields.tags,
+      showOnMap: fields.showOnMap,
+      latitude: fields.latitude,
+      longitude: fields.longitude,
+      locationName: fields.locationName,
+    },
+    media_input: media.map((item) => ({
+      id: item.id ?? null,
+      type: item.type,
+      url: item.url,
+      storagePath: item.storagePath,
+      aspectRatio: item.aspectRatio,
+      position: item.position,
+      thumbnailUrl: item.thumbnailUrl ?? null,
+      latitude: item.latitude ?? null,
+      longitude: item.longitude ?? null,
+      locationName: item.locationName ?? null,
+    })),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 /**
  * Last successful getAllPosts() result, kept in module scope (not React
  * state) so it survives every consumer unmounting — e.g. navigating

@@ -1,0 +1,399 @@
+"use client";
+
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { convertHeicToJpeg, isHeicFile } from "@/lib/heic";
+import { MAX_IMAGE_SOURCE_BYTES, prepareImageForUpload, type ImageDiagnostics } from "@/lib/imageOptimization";
+import { ALLOWED_MEDIA_TYPES, MAX_VIDEO_BYTES } from "@/lib/storage";
+import type { MediaType } from "@/types/post";
+
+/** A photo post may hold 1–10 photos. Trivially adjustable later. */
+export const MAX_PHOTO_ITEMS = 10;
+/** A video post holds exactly one video — never mixed with photos, never more than one. */
+export const MAX_VIDEO_ITEMS = 1;
+
+/**
+ * One media item in the composer's ordered list — either an already-
+ * persisted photo (kept as-is, possibly moved and/or relocated) or a
+ * locally-selected, not-yet-uploaded file. Both carry the same `location`
+ * field, and reordering (handleMoveMedia) only ever moves whole array
+ * elements — a photo's id/location/image always travel together as one
+ * object, never tracked in a separate index-keyed structure.
+ */
+export type MediaComposerItem =
+  | {
+      key: string;
+      kind: "existing";
+      id: number;
+      type: MediaType;
+      previewUrl: string;
+      storagePath: string;
+      aspectRatio: string | null;
+      thumbnailUrl?: string;
+      location?: { lat: number; lng: number };
+    }
+  | {
+      key: string;
+      kind: "new";
+      type: MediaType;
+      previewUrl: string;
+      file: File;
+      originalName: string;
+      imageDiagnostics?: ImageDiagnostics;
+      location?: { lat: number; lng: number };
+    };
+
+export type ExistingMediaSeed = {
+  id: number;
+  type: MediaType;
+  url: string;
+  storagePath: string;
+  aspectRatio: string | null;
+  thumbnailUrl?: string;
+  location?: { lat: number; lng: number };
+};
+
+/**
+ * A post's media "mode" is never stored — it's derived from whatever's
+ * already selected, exactly like `post_type` is derived from `media` on the
+ * read side. Removing every item naturally returns this to neutral (`null`)
+ * on the next computation; no reset code needed.
+ */
+export type MediaMode = "photo" | "video" | null;
+
+function modeFor(items: MediaComposerItem[]): MediaMode {
+  return items.length === 0 ? null : items[0].type === "video" ? "video" : "photo";
+}
+
+function seedToItem(seed: ExistingMediaSeed): MediaComposerItem {
+  return {
+    key: `existing-${seed.id}`,
+    kind: "existing",
+    id: seed.id,
+    type: seed.type,
+    previewUrl: seed.url,
+    storagePath: seed.storagePath,
+    aspectRatio: seed.aspectRatio,
+    thumbnailUrl: seed.thumbnailUrl,
+    location: seed.location,
+  };
+}
+
+export type UseMediaComposerOptions = {
+  initialItems?: ExistingMediaSeed[];
+  initialShowOnMap?: boolean;
+  initialCoords?: { lat: number; lng: number } | null;
+  /** Defaults to true if any seeded item already has its own location — the
+   *  editor should open already reflecting per-photo mode rather than
+   *  silently hiding existing per-photo pins behind a toggle that reads off. */
+  initialPerPhotoLocationMode?: boolean;
+};
+
+/**
+ * All media + map-location state and handlers shared by MediaPostEditor
+ * (create) and EditPostForm's photo-edit path — lifted verbatim out of
+ * MediaPostEditor so neither duplicates the file-validation/HEIC/
+ * optimization pipeline, the add/remove/reorder logic, or the per-photo
+ * location assignment logic. The only thing that differs between callers is
+ * how the initial item list is seeded (empty for create, from an existing
+ * post's media for edit) and what happens on submit — both stay in the
+ * calling component.
+ */
+export function useMediaComposer({
+  initialItems = [],
+  initialShowOnMap = false,
+  initialCoords = null,
+  initialPerPhotoLocationMode,
+}: UseMediaComposerOptions = {}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaItemsRef = useRef<MediaComposerItem[]>([]);
+
+  const [mediaItems, setMediaItems] = useState<MediaComposerItem[]>(() => initialItems.map(seedToItem));
+  const [showOnMap, setShowOnMap] = useState(initialShowOnMap);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(initialCoords);
+  const [perPhotoLocationMode, setPerPhotoLocationMode] = useState(
+    initialPerPhotoLocationMode ?? initialItems.some((item) => item.location != null),
+  );
+  const [selectedLocationKeys, setSelectedLocationKeys] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [isConvertingHeic, setIsConvertingHeic] = useState(false);
+
+  const mode = modeFor(mediaItems);
+
+  // Turning per-photo mode OFF — whether the user toggles it directly or
+  // handleRemoveMedia collapses it for them below — must also drop any pins
+  // already assigned, so "off" really means today's exact behavior, not
+  // "off, but still secretly submitting per-photo pins."
+  function turnOffPerPhotoLocationMode() {
+    setPerPhotoLocationMode(false);
+    setSelectedLocationKeys(new Set());
+    setMediaItems((items) => items.map((item) => ({ ...item, location: undefined })));
+  }
+
+  // The master "Show this post on the map" switch — turning it off must also
+  // exit per-photo mode and drop any per-photo pins, so no per-photo data
+  // can survive hidden behind a location section that now looks fully off.
+  function handleToggleShowOnMap() {
+    setShowOnMap((prev) => {
+      const next = !prev;
+      if (!next) {
+        turnOffPerPhotoLocationMode();
+      }
+      return next;
+    });
+  }
+
+  function handleTogglePerPhotoLocationMode() {
+    if (perPhotoLocationMode) {
+      turnOffPerPhotoLocationMode();
+      return;
+    }
+    // Per-photo mode is only ever reachable while "Show this post on the
+    // map" is already on (it's nested inside that section) — never touch
+    // showOnMap here, only the post-level coords it fully supersedes.
+    setPerPhotoLocationMode(true);
+    setCoords(null);
+  }
+
+  function handleTogglePhotoSelection(key: string) {
+    setSelectedLocationKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  // Assigns one location to every currently selected photo at once. The
+  // selection deliberately stays active afterward — dragging the same pin
+  // again re-applies to the same batch, and the picker stays open — until
+  // the user explicitly changes which photos are selected.
+  function handleSetLocationForSelectedPhotos(location: { lat: number; lng: number }) {
+    setMediaItems((prev) => prev.map((item) => (selectedLocationKeys.has(item.key) ? { ...item, location } : item)));
+  }
+
+  function handleClearLocationForSelectedPhotos() {
+    setMediaItems((prev) =>
+      prev.map((item) => (selectedLocationKeys.has(item.key) ? { ...item, location: undefined } : item)),
+    );
+  }
+
+  // Keeps the latest media items available to the unmount-only cleanup effect
+  // below without making that effect depend on (and re-run per) every change.
+  useEffect(() => {
+    mediaItemsRef.current = mediaItems;
+  }, [mediaItems]);
+
+  // Revokes every object URL still outstanding when the composer unmounts.
+  // Only ever meaningful for "new" items (existing items' previewUrl is a
+  // real remote URL, never a blob: URL) — revoking a non-blob URL is a
+  // harmless no-op regardless, but this is scoped precisely on purpose.
+  // Removing an item revokes its own URL immediately (see handleRemoveMedia),
+  // so by the time this runs it only ever sees URLs that weren't already
+  // revoked — no double-revoke.
+  useEffect(() => {
+    return () => {
+      for (const item of mediaItemsRef.current) {
+        if (item.kind === "new") URL.revokeObjectURL(item.previewUrl);
+      }
+    };
+  }, []);
+
+  async function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = ""; // allow re-selecting the same file(s) later
+    if (files.length === 0) return; // user canceled the picker — leave the editor as it was
+
+    setError(null);
+
+    // Recomputed per-batch, then locked in the moment the batch's first valid
+    // item is accepted (not merely attempted) — see modeFor's doc comment.
+    let currentMode = mode;
+    let queuedPhotoCount = mode === "photo" ? mediaItems.length : 0;
+    let queuedVideoCount = mode === "video" ? 1 : 0;
+    const newItems: MediaComposerItem[] = [];
+    let modeConflictMessage: string | null = null;
+    let overflowCount = 0;
+    let rejectedCount = 0;
+    let processingFailedCount = 0;
+
+    for (const file of files) {
+      const isVideo = file.type.startsWith("video/");
+      const candidateType: MediaType = isVideo ? "video" : "image";
+
+      // Product-rule (mode) check first — before wasting HEIC/size work on a
+      // file that can't be accepted regardless of its own validity. Both
+      // directions of "wrong type for the locked mode" are rejected the same
+      // way as "this type's slot is already full" — a video post's single
+      // slot (MAX_VIDEO_ITEMS) filled is indistinguishable from "no photos
+      // allowed here" from the user's point of view.
+      if (currentMode === "photo" && candidateType === "video") {
+        modeConflictMessage ??= "Photo posts can contain photos only.";
+        continue;
+      }
+      if (currentMode === "video" && candidateType === "image") {
+        modeConflictMessage ??= "Video posts can contain only one video.";
+        continue;
+      }
+      if (candidateType === "video" && queuedVideoCount >= MAX_VIDEO_ITEMS) {
+        modeConflictMessage ??= "Video posts can contain only one video.";
+        continue;
+      }
+      if (candidateType === "image" && queuedPhotoCount >= MAX_PHOTO_ITEMS) {
+        overflowCount += 1;
+        continue;
+      }
+
+      const isHeicSource = !isVideo && isHeicFile(file);
+
+      if (!isHeicSource && !ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
+        rejectedCount += 1;
+        continue;
+      }
+
+      // Images (HEIC included) share one unified source-safety ceiling — a
+      // guard against absurd files/memory use, not a quality target. See
+      // lib/imageOptimization.ts for the optimization target and dimension
+      // cap that do the actual size-shaping work. Video keeps its own,
+      // unrelated ceiling.
+      const maxSourceBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_SOURCE_BYTES;
+      if (file.size > maxSourceBytes) {
+        rejectedCount += 1;
+        continue;
+      }
+
+      let fileToUse = file;
+      let imageDiagnostics: ImageDiagnostics | undefined;
+
+      if (isHeicSource) {
+        setIsConvertingHeic(true);
+        try {
+          fileToUse = await convertHeicToJpeg(file);
+        } catch {
+          rejectedCount += 1;
+          setIsConvertingHeic(false);
+          continue;
+        }
+        setIsConvertingHeic(false);
+      }
+
+      if (!isVideo) {
+        try {
+          const prepared = await prepareImageForUpload(fileToUse, isHeicSource);
+          fileToUse = prepared.file;
+          imageDiagnostics = prepared.diagnostics;
+        } catch {
+          processingFailedCount += 1;
+          continue;
+        }
+      }
+
+      newItems.push({
+        key: crypto.randomUUID(),
+        kind: "new",
+        file: fileToUse,
+        originalName: file.name,
+        previewUrl: URL.createObjectURL(fileToUse),
+        type: candidateType,
+        imageDiagnostics,
+      });
+
+      if (candidateType === "video") {
+        queuedVideoCount += 1;
+        currentMode = "video";
+      } else {
+        queuedPhotoCount += 1;
+        currentMode ??= "photo";
+      }
+    }
+
+    if (newItems.length > 0) {
+      setMediaItems((prev) => [...prev, ...newItems]);
+    }
+
+    const messages: string[] = [];
+    if (modeConflictMessage) messages.push(modeConflictMessage);
+    if (overflowCount > 0) {
+      messages.push(
+        `You can add up to ${MAX_PHOTO_ITEMS} photos per post — ${overflowCount} file${overflowCount === 1 ? " was" : "s were"} not added.`,
+      );
+    }
+    if (rejectedCount > 0) {
+      messages.push(
+        `${rejectedCount} file${rejectedCount === 1 ? " couldn't" : "s couldn't"} be added — check file type and size (JPEG/PNG/WEBP/AVIF/HEIC photos, MP4/WEBM/MOV videos).`,
+      );
+    }
+    if (processingFailedCount > 0) {
+      messages.push(
+        `${processingFailedCount} photo${processingFailedCount === 1 ? " couldn't" : "s couldn't"} be processed.`,
+      );
+    }
+    if (messages.length > 0) setError(messages.join(" "));
+  }
+
+  function handleRemoveMedia(key: string) {
+    const item = mediaItems.find((i) => i.key === key);
+    if (item && item.kind === "new") URL.revokeObjectURL(item.previewUrl);
+    const remaining = mediaItems.filter((i) => i.key !== key);
+
+    // Per-photo mode only makes sense with >1 photo — collapse back to the
+    // single-location editor the moment that stops being true, mirroring
+    // modeFor's "removing every item returns to neutral" convention already
+    // used in this file.
+    if (perPhotoLocationMode && remaining.length <= 1) {
+      setSelectedLocationKeys(new Set());
+      setPerPhotoLocationMode(false);
+      setMediaItems(remaining.map((i) => ({ ...i, location: undefined })));
+      return;
+    }
+
+    // A removed photo can no longer be "selected" — drop it from the batch
+    // rather than leaving a phantom entry pointing at nothing.
+    setSelectedLocationKeys((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    setMediaItems(remaining);
+  }
+
+  function handleMoveMedia(key: string, direction: -1 | 1) {
+    setMediaItems((prev) => {
+      const index = prev.findIndex((i) => i.key === key);
+      if (index === -1) return prev;
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+
+      const next = prev.slice();
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  }
+
+  const showAddMoreTile = mode !== "video" && mediaItems.length < MAX_PHOTO_ITEMS;
+
+  return {
+    fileInputRef,
+    mediaItems,
+    mode,
+    showOnMap,
+    coords,
+    setCoords,
+    perPhotoLocationMode,
+    selectedLocationKeys,
+    error,
+    setError,
+    isConvertingHeic,
+    showAddMoreTile,
+    handleMediaChange,
+    handleRemoveMedia,
+    handleMoveMedia,
+    handleToggleShowOnMap,
+    handleTogglePerPhotoLocationMode,
+    handleTogglePhotoSelection,
+    handleSetLocationForSelectedPhotos,
+    handleClearLocationForSelectedPhotos,
+  };
+}
+
+export type MediaComposerState = ReturnType<typeof useMediaComposer>;
