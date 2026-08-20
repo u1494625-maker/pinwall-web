@@ -152,7 +152,7 @@ export default function BottomNav() {
           const content = isAddButton ? (
             <span
               aria-hidden="true"
-              className="grid size-12 place-items-center rounded-full bg-orange-500 text-2xl text-white shadow-lg shadow-orange-200"
+              className="grid size-13 place-items-center rounded-full bg-kavanaka-lime text-2xl text-kavanaka-ink shadow-md shadow-kavanaka-lime/40"
             >
               {item.icon}
             </span>
@@ -173,7 +173,7 @@ export default function BottomNav() {
           );
 
           const sharedClassName = `flex h-full w-1/5 items-center justify-center text-sm font-bold tracking-tight ${
-            isActive ? "text-orange-600" : "text-stone-500"
+            isActive ? "text-kavanaka-green" : "text-stone-500"
           }`;
 
           // Logged in: the "+" opens the creation sheet instead of navigating.

@@ -37,11 +37,11 @@ export default function PostMapMarker({ cover, title, highlighted = false, textT
     <div className="flex w-20 flex-col items-center pb-1.5">
       <div className="relative w-full">
         {highlighted ? (
-          <span className="absolute -inset-1.5 animate-ping rounded-xl bg-orange-400/50" />
+          <span className="absolute -inset-1.5 animate-ping rounded-xl bg-kavanaka-aqua/50" />
         ) : null}
         <div
           className={`relative overflow-hidden rounded-xl border-2 bg-white shadow-lg ${
-            highlighted ? "border-orange-500 ring-2 ring-orange-300" : "border-white"
+            highlighted ? "border-kavanaka-aqua ring-2 ring-kavanaka-aqua/40" : "border-white"
           }`}
         >
           {cover?.type === "image" ? (
@@ -58,7 +58,7 @@ export default function PostMapMarker({ cover, title, highlighted = false, textT
           ) : textTemplate ? (
             <TextPostVisual template={textTemplate} text={title} size="map" />
           ) : (
-            <div className="grid aspect-square w-full place-items-center bg-orange-100 text-base text-orange-600">
+            <div className="grid aspect-square w-full place-items-center bg-kavanaka-aqua/15 text-base text-kavanaka-aqua">
               ✎
             </div>
           )}

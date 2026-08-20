@@ -31,10 +31,10 @@ export default function TagFeedPage({ tag }: TagFeedPageProps) {
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <header className="px-4 pb-4 pt-8">
-        <Link href="/" className="text-xs font-bold text-orange-600">
+        <Link href="/" className="text-xs font-bold text-kavanaka-green">
           ‹ Back to Home
         </Link>
-        <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600">Tagged</p>
+        <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-kavanaka-green">Tagged</p>
         <h1 className="mt-1 text-2xl font-black tracking-tight">#{tag}</h1>
         {!loading ? (
           <p className="mt-1 text-sm text-stone-500">

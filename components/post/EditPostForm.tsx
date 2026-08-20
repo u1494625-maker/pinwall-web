@@ -151,7 +151,7 @@ function EditPostFields({ post }: { post: Post }) {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <ComposerTopBar cancelHref={`/post/${post.id}`} />
+      <ComposerTopBar onCancel={() => router.back()} />
 
       <form onSubmit={handleSubmit} className="space-y-5 px-5 pt-4">
         {cover?.type === "video" ? (

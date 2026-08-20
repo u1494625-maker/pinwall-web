@@ -27,7 +27,7 @@ export default function ComposerBottomBar({
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full rounded-full bg-orange-500 py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-200 disabled:opacity-60"
+        className="w-full rounded-full bg-kavanaka-lime py-3 text-sm font-bold text-kavanaka-ink shadow-md shadow-kavanaka-lime/30 disabled:opacity-60"
       >
         {isSubmitting ? submittingLabel : submitLabel}
       </button>

@@ -24,7 +24,7 @@ function ProfileHeaderSkeleton() {
 }
 
 function MeContent() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const posts = useAllPosts();
   const { ids: savedPostIds } = useSavedPostIds();
   const { ids: likedPostIds } = useLikedPostIds();
@@ -70,21 +70,12 @@ function MeContent() {
       <ProfileHeader
         profile={profile}
         headerActions={
-          <>
-            <Link
-              href="/me/edit"
-              className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-            >
-              Edit Profile
-            </Link>
-            <button
-              type="button"
-              onClick={() => signOut()}
-              className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-            >
-              Log out
-            </button>
-          </>
+          <Link
+            href="/me/edit"
+            className="rounded-full bg-white/15 px-3 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm transition-colors hover:bg-white/25"
+          >
+            Edit Profile
+          </Link>
         }
       />
 
@@ -117,7 +108,7 @@ function MeContent() {
               >
                 <span className={isActive ? "text-stone-900" : "text-stone-400"}>{tab}</span>
                 {isActive ? (
-                  <span className="absolute inset-x-0 -bottom-px mx-auto h-[2.5px] w-8 rounded-full bg-orange-500" />
+                  <span className="absolute inset-x-0 -bottom-px mx-auto h-[2.5px] w-8 rounded-full bg-kavanaka-lime" />
                 ) : null}
               </button>
             );

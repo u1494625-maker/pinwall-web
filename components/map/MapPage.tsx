@@ -465,14 +465,17 @@ export default function MapPage() {
     <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div ref={containerRef} className="h-full w-full" />
 
-      {/* One shared row for both filter controls — a plain flex layout (not
-          two independently absolutely-positioned/centered elements) so they
-          divide the available width naturally and can never overlap, even
-          with search open and every time-filter label visible at once,
-          which requirement 16 (adjusting time filter while search is
-          active) needs both to stay true. */}
-      <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex items-start justify-between gap-2 px-3">
-        <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-full bg-white/95 p-1 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
+      {/* Full-width, non-interactive overlay spanning the map's own column
+          (Leaflet's zoom control lives outside this entirely, at its native
+          top-left position — untouched). The time-filter pills and the
+          search control are each independently absolutely-positioned within
+          it (time-filter horizontally centered on the column, search pinned
+          right) rather than flex siblings in one row — that older layout
+          made the time-filter's position depend on the search control (and
+          collide with Leaflet's own top-left zoom control); this way each
+          control's position is independent and neither can push the other. */}
+      <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] px-3">
+        <div className="pointer-events-auto absolute left-1/2 top-0 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-white/95 p-1 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
           {MAP_TIME_FILTER_OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -493,7 +496,7 @@ export default function MapPage() {
             collapsible on purpose: it must never cover much map area, and an
             empty query is exactly equivalent to not searching at all. */}
         {isSearchOpen ? (
-          <div className="pointer-events-auto flex min-w-0 shrink items-center gap-1 rounded-full bg-white/95 py-1.5 pl-3 pr-1.5 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
+          <div className="pointer-events-auto absolute right-0 top-0 flex min-w-0 shrink items-center gap-1 rounded-full bg-white/95 py-1.5 pl-3 pr-1.5 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
             <input
               autoFocus
               type="text"
@@ -517,7 +520,7 @@ export default function MapPage() {
             type="button"
             onClick={() => setIsSearchOpen(true)}
             aria-label="Search map"
-            className="pointer-events-auto grid size-9 shrink-0 place-items-center rounded-full bg-white/95 text-stone-600 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur"
+            className="pointer-events-auto absolute right-0 top-0 grid size-10 shrink-0 place-items-center rounded-full bg-white/95 text-kavanaka-aqua shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur"
           >
             ⌕
           </button>

@@ -82,7 +82,10 @@ function ShareIcon() {
   );
 }
 
-/** Outlined circle with three dots — Comment. */
+/** Outlined speech bubble with a lower-right tail — Comments. Built by
+ *  horizontally mirroring the standard "message square" bubble shape (whose
+ *  tail natively points lower-left) via an SVG transform, rather than
+ *  hand-deriving new curve coordinates by hand. */
 function CommentIcon() {
   return (
     <svg
@@ -92,18 +95,16 @@ function CommentIcon() {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5"
+      className="size-[24px]"
     >
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-      <circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <path transform="scale(-1,1) translate(-24,0)" d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
 
-/** Outlined heart — Like. `filled` swaps to a solid fill for the liked state. */
-function LikeIcon({ filled = false }: { filled?: boolean }) {
+/** Outlined thumbs-up — Helpful. `filled` swaps to a solid fill for the
+ *  active state. Same 24x24/stroke-2 convention as the other action icons. */
+function ThumbsUpIcon({ filled = false }: { filled?: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -112,9 +113,9 @@ function LikeIcon({ filled = false }: { filled?: boolean }) {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5"
+      className="size-[24px]"
     >
-      <path d="M12 21s-6.5-4.35-9.5-8.3C.5 9.5 1.8 5.5 5.5 5c2-.27 3.5.9 4.5 2.3C11 5.9 12.5 4.73 14.5 5c3.7.5 5 4.5 3 7.7C18.5 16.65 12 21 12 21Z" />
+      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
     </svg>
   );
 }
@@ -129,7 +130,7 @@ function SaveIcon({ filled = false }: { filled?: boolean }) {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5"
+      className="size-[24px]"
     >
       <path d="M12 2.5l2.9 6.26 6.9.74-5.2 4.53 1.5 6.97L12 17.27l-6.1 3.73 1.5-6.97-5.2-4.53 6.9-.74L12 2.5Z" />
     </svg>
@@ -137,7 +138,7 @@ function SaveIcon({ filled = false }: { filled?: boolean }) {
 }
 
 /** Outlined flag — report a post/comment. */
-function FlagIcon({ className = "size-5" }: { className?: string }) {
+function FlagIcon({ className = "size-[24px]" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -156,7 +157,7 @@ function FlagIcon({ className = "size-5" }: { className?: string }) {
 
 function MoreIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className="size-3.5">
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-[24px]">
       <circle cx="5" cy="12" r="1.75" />
       <circle cx="12" cy="12" r="1.75" />
       <circle cx="19" cy="12" r="1.75" />
@@ -562,7 +563,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         {post.media.length === 0 && viewOnMapTarget ? (
           <Link
             href={viewOnMapTarget.href}
-            className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.14em] text-orange-600"
+            className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.14em] text-kavanaka-aqua"
           >
             📍 {viewOnMapTarget.label}
           </Link>
@@ -586,7 +587,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
               <Link
                 key={tag}
                 href={`/tag/${encodeURIComponent(tag)}`}
-                className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700"
+                className="rounded-full bg-kavanaka-lime/15 px-2.5 py-1 text-[11px] font-semibold text-kavanaka-green"
               >
                 #{tag}
               </Link>
@@ -623,87 +624,96 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         />
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto flex w-full max-w-md items-center gap-2 border-t border-stone-200 bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur">
-        {isOwner ? (
-          <button
-            type="button"
-            onClick={() => {
-              setManageSheetKey((key) => key + 1);
-              setManageSheetOpen(true);
+      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto flex w-full max-w-md items-center gap-3 border-t border-stone-200 bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur">
+        {/* Explicit ~48% width (not flex-1) — the input is deliberately
+            shorter than "fill remaining space" so the action-icon group
+            always has generous, evenly-distributed room, not just enough to
+            avoid overlap. min-w-0 kept defensively on both the wrapper and
+            the input itself. Shown to owner and non-owner alike — owners
+            previously had no quick way to jump to comments from this bar
+            (the Manage-post pill occupied this whole slot); relocating
+            Manage into the icon row below frees this up for everyone. */}
+        <div className="w-[48%] min-w-0 shrink-0">
+          <input
+            type="text"
+            readOnly
+            onClick={(event) => {
+              event.currentTarget.blur();
+              scrollToComments();
             }}
-            aria-label="Manage post"
-            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-stone-100 px-4 py-2.5 text-sm font-bold text-stone-600"
-          >
-            <MoreIcon />
-            <span className="truncate">Manage post</span>
-          </button>
-        ) : (
-          // <input> resists flex-shrink even with min-w-0 on itself (a
-          // replaced element's intrinsic sizing isn't governed by the flex
-          // algorithm the same way a <div>/<button> is) — wrapping it in a
-          // plain shrinkable div and letting the input fill that at w-full
-          // sidesteps the quirk entirely.
-          <div className="min-w-0 flex-1">
-            <input
-              type="text"
-              readOnly
-              onClick={(event) => {
-                event.currentTarget.blur();
-                scrollToComments();
-              }}
-              placeholder="Say something…"
-              aria-label="Add a comment"
-              className="w-full cursor-pointer rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none"
-            />
-          </div>
-        )}
+            placeholder="Say something…"
+            aria-label="Add a comment"
+            className="w-full min-w-0 cursor-pointer rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm text-stone-400 outline-none"
+          />
+        </div>
 
-        <button
-          type="button"
-          onClick={handleToggleLike}
-          aria-pressed={isLiked}
-          aria-label={isLiked ? "Not helpful" : "Helpful"}
-          className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
-        >
-          <span className={isLiked ? "text-red-500" : "text-stone-500"}>
-            <LikeIcon filled={isLiked} />
-          </span>
-          {likeCount}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleToggleSave}
-          aria-pressed={isSaved}
-          aria-label={isSaved ? "Unsave" : "Save"}
-          className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
-        >
-          <span className={isSaved ? "text-orange-500" : "text-stone-500"}>
-            <SaveIcon filled={isSaved} />
-          </span>
-          {saveCount}
-        </button>
-
-        <button
-          type="button"
-          onClick={scrollToComments}
-          aria-label="Comments"
-          className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
-        >
-          <CommentIcon />
-          {displayedCommentCount}
-        </button>
-
-        {!isOwner ? (
+        {/* Takes the full remaining ~52% (flex-1) and spreads the 4 compact
+            icon+count units across it via justify-between, so the last
+            action naturally lands near the bar's right edge instead of
+            leaving a dead gap. Every button is now a single-row horizontal
+            unit (icon beside its count, not stacked above it), so all 4 are
+            naturally the same height and items-center aligns them correctly
+            against the input pill without needing any special-case offset. */}
+        <div className="flex flex-1 items-center justify-between">
           <button
             type="button"
-            onClick={() => openReportModal({ type: "post" })}
-            aria-label="Report post"
-            className="flex shrink-0 flex-col items-center gap-0.5 py-1 text-[11px] font-bold text-stone-500"
+            onClick={handleToggleLike}
+            aria-pressed={isLiked}
+            aria-label={isLiked ? "Not helpful" : "Helpful"}
+            className="flex items-center gap-1 text-[11px] font-bold text-stone-500"
           >
-            <FlagIcon />
+            <span className={isLiked ? "text-red-500" : "text-stone-500"}>
+              <ThumbsUpIcon filled={isLiked} />
+            </span>
+            {likeCount}
           </button>
-        ) : null}
+
+          <button
+            type="button"
+            onClick={handleToggleSave}
+            aria-pressed={isSaved}
+            aria-label={isSaved ? "Unsave" : "Save"}
+            className="flex items-center gap-1 text-[11px] font-bold text-stone-500"
+          >
+            <span className={isSaved ? "text-kavanaka-green" : "text-stone-500"}>
+              <SaveIcon filled={isSaved} />
+            </span>
+            {saveCount}
+          </button>
+
+          <button
+            type="button"
+            onClick={scrollToComments}
+            aria-label="Comments"
+            className="flex items-center gap-1 text-[11px] font-bold text-stone-500"
+          >
+            <CommentIcon />
+            {displayedCommentCount}
+          </button>
+
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={() => {
+                setManageSheetKey((key) => key + 1);
+                setManageSheetOpen(true);
+              }}
+              aria-label="Manage post"
+              className="flex items-center text-[11px] font-bold text-stone-500"
+            >
+              <MoreIcon />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openReportModal({ type: "post" })}
+              aria-label="Report post"
+              className="flex items-center text-[11px] font-bold text-stone-500"
+            >
+              <FlagIcon />
+            </button>
+          )}
+        </div>
       </div>
 
       <ReportModal

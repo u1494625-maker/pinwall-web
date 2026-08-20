@@ -12,7 +12,7 @@ export default function TopBar({ children }: TopBarProps) {
       <Link
         href="/search"
         aria-label="Search"
-        className="absolute right-4 grid size-9 place-items-center rounded-full bg-stone-100 text-xl text-stone-700 transition-colors hover:bg-stone-200"
+        className="absolute right-4 grid size-10 place-items-center rounded-full bg-stone-100 text-xl text-kavanaka-ink transition-colors hover:bg-stone-200"
       >
         <span aria-hidden="true">
           ⌕

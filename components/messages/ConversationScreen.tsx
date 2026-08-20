@@ -212,7 +212,7 @@ export default function ConversationScreen({ conversationId }: ConversationScree
                 <div className="max-w-[75%]">
                   <div
                     className={`rounded-2xl px-3.5 py-2 text-sm ${
-                      isMine ? "bg-orange-500 text-white" : "bg-white text-stone-900 shadow-sm"
+                      isMine ? "bg-kavanaka-lime text-kavanaka-ink" : "bg-white text-stone-900 shadow-sm"
                     }`}
                   >
                     {message.body}
@@ -250,7 +250,7 @@ export default function ConversationScreen({ conversationId }: ConversationScree
             type="button"
             onClick={handleSend}
             disabled={trimmedDraft.length === 0 || isSending}
-            className="shrink-0 rounded-full bg-orange-500 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+            className="shrink-0 rounded-full bg-kavanaka-lime px-4 py-2.5 text-sm font-bold text-kavanaka-ink disabled:opacity-40"
           >
             Send
           </button>

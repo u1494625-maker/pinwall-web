@@ -7,36 +7,10 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { markMessagesOpened, setHasUnseenMessages } from "@/lib/messages";
 import { getUnreadNotificationCounts, type UnreadNotificationCounts } from "@/lib/notifications";
 
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="size-5">
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-function ComposeIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-5"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 8v8M8 12h8" />
-    </svg>
-  );
-}
-
-function HeartIcon() {
+function ThumbsUpIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="size-5">
-      <path d="M12 21s-6.7-4.35-9.3-8.1C1 10.1 1.6 6.6 4.6 5.2c2.2-1 4.6-.2 5.9 1.6l1.5 2 1.5-2c1.3-1.8 3.7-2.6 5.9-1.6 3 1.4 3.6 4.9 1.9 7.7C18.7 16.65 12 21 12 21Z" />
+      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
     </svg>
   );
 }
@@ -61,7 +35,7 @@ function ChatIcon() {
 const EMPTY_COUNTS: UnreadNotificationCounts = { likeCount: 0, followCount: 0, commentCount: 0 };
 
 const categories = [
-  { countKey: "likeCount", label: "Helpful", href: "/messages/likes", accent: "bg-rose-100 text-rose-500", Icon: HeartIcon },
+  { countKey: "likeCount", label: "Helpful", href: "/messages/likes", accent: "bg-kavanaka-lime/20 text-kavanaka-green", Icon: ThumbsUpIcon },
   {
     countKey: "followCount",
     label: "New followers",
@@ -69,7 +43,7 @@ const categories = [
     accent: "bg-blue-100 text-blue-500",
     Icon: PersonIcon,
   },
-  { countKey: "commentCount", label: "Comments", href: "/messages/comments", accent: "bg-emerald-100 text-emerald-500", Icon: ChatIcon },
+  { countKey: "commentCount", label: "Comments", href: "/messages/comments", accent: "bg-kavanaka-aqua/15 text-kavanaka-aqua", Icon: ChatIcon },
 ] as const;
 
 export default function MessagesHome() {
@@ -101,24 +75,8 @@ export default function MessagesHome() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <header className="relative px-5 pb-1 pt-8 text-center">
+      <header className="px-5 pb-1 pt-8 text-center">
         <h1 className="text-2xl font-black tracking-tight text-stone-900">Messages</h1>
-        <div className="absolute right-5 top-8 flex items-center gap-1 text-stone-500">
-          <Link
-            href="/search"
-            aria-label="Search"
-            className="grid size-9 place-items-center rounded-full transition-colors hover:bg-stone-100"
-          >
-            <SearchIcon />
-          </Link>
-          <Link
-            href="/messages/new"
-            aria-label="New message"
-            className="grid size-9 place-items-center rounded-full transition-colors hover:bg-stone-100"
-          >
-            <ComposeIcon />
-          </Link>
-        </div>
       </header>
 
       <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-5">
@@ -129,7 +87,7 @@ export default function MessagesHome() {
               <span className={`relative grid size-12 place-items-center rounded-2xl ${accent}`}>
                 <Icon />
                 {count > 0 ? (
-                  <span className="absolute -right-1 -top-1 grid min-w-[18px] place-items-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white">
+                  <span className="absolute -right-1 -top-1 grid min-w-[18px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
                     {count}
                   </span>
                 ) : null}

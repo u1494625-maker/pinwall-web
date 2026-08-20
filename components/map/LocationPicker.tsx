@@ -149,7 +149,7 @@ export default function LocationPicker({ value, onChange }: LocationPickerProps)
         <button
           type="button"
           onClick={useCurrentLocation}
-          className="shrink-0 rounded-full bg-stone-100 px-3 py-1.5 text-[11px] font-bold text-stone-700 hover:bg-orange-100"
+          className="shrink-0 rounded-full bg-stone-100 px-3 py-1.5 text-[11px] font-bold text-stone-700 hover:bg-kavanaka-aqua/10"
         >
           Use current location
         </button>

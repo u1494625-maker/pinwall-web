@@ -53,14 +53,14 @@ export default function PerPhotoLocationFields({
               aria-label={`${isSelected ? "Deselect" : "Select"} photo ${index + 1} for location assignment`}
               aria-pressed={isSelected}
               className={`relative size-16 shrink-0 overflow-hidden rounded-xl border-2 ${
-                isSelected ? "border-orange-500" : "border-transparent"
+                isSelected ? "border-kavanaka-aqua" : "border-transparent"
               }`}
             >
               <DemoPhoto src={photo.previewUrl} alt={`Photo ${index + 1}`} className="size-full" />
               {isSelected ? (
                 <span
                   aria-hidden="true"
-                  className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-orange-500 text-[9px] font-black leading-none text-white"
+                  className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-kavanaka-aqua text-[9px] font-black leading-none text-white"
                 >
                   ✓
                 </span>
@@ -68,7 +68,7 @@ export default function PerPhotoLocationFields({
               {photo.location ? (
                 <span
                   aria-hidden="true"
-                  className="absolute bottom-0.5 right-0.5 grid size-4 place-items-center rounded-full bg-orange-500 text-[9px] leading-none text-white"
+                  className="absolute bottom-0.5 right-0.5 grid size-4 place-items-center rounded-full bg-kavanaka-aqua text-[9px] leading-none text-white"
                 >
                   📍
                 </span>

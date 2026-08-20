@@ -5,6 +5,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import ImageCropModal from "@/components/profile/ImageCropModal";
 import { PROFILE_HEADER_ASPECT } from "@/components/profile/ProfileHeader";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { MAX_BIO_LENGTH, MAX_DISPLAY_NAME_LENGTH, updateProfile, type Profile } from "@/lib/profiles";
 import { uploadProfileImage } from "@/lib/storage";
 
@@ -17,6 +18,7 @@ type CropTarget = "avatar" | "background" | null;
 
 export default function EditProfileForm({ userId, profile }: EditProfileFormProps) {
   const router = useRouter();
+  const { signOut } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
 
@@ -117,7 +119,7 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
           type="button"
           onClick={handleSave}
           disabled={isSaving}
-          className="text-sm font-black text-orange-600 disabled:opacity-50"
+          className="text-sm font-black text-kavanaka-green disabled:opacity-50"
         >
           {isSaving ? "Saving…" : "Save"}
         </button>
@@ -212,6 +214,12 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
         </div>
 
         {error ? <p className="mt-4 text-center text-xs font-semibold text-red-600">{error}</p> : null}
+
+        <div className="mt-8 border-t border-stone-100 pt-5 text-center">
+          <button type="button" onClick={() => signOut()} className="text-sm font-semibold text-stone-500">
+            Log out
+          </button>
+        </div>
       </div>
 
       {cropTarget && cropSourceUrl ? (

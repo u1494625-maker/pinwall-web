@@ -33,11 +33,11 @@ export default function TextTemplatePicker({ template, onTemplateChange, title }
               onClick={() => onTemplateChange(id)}
               aria-pressed={isSelected}
               className={`flex shrink-0 flex-col items-center gap-1.5 rounded-xl p-1.5 ${
-                isSelected ? "ring-2 ring-orange-500" : "ring-1 ring-stone-200"
+                isSelected ? "ring-2 ring-kavanaka-lime" : "ring-1 ring-stone-200"
               }`}
             >
               <span aria-hidden="true" className={`size-11 rounded-lg ${config.swatchClassName}`} />
-              <span className={`text-xs font-semibold ${isSelected ? "text-orange-600" : "text-stone-500"}`}>
+              <span className={`text-xs font-semibold ${isSelected ? "text-kavanaka-green" : "text-stone-500"}`}>
                 {config.label}
               </span>
             </button>

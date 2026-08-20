@@ -47,7 +47,7 @@ export default function PostClusterMarker({
 
   return (
     <div
-      className={`relative grid place-items-center rounded-full border-2 border-white bg-orange-500 shadow-lg ${sizeClassFor(itemCount)}`}
+      className={`relative grid place-items-center rounded-full border-2 border-white bg-kavanaka-aqua shadow-lg ${sizeClassFor(itemCount)}`}
     >
       <span className="relative font-black text-white">{itemCount}</span>
     </div>

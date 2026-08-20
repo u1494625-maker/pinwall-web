@@ -1,9 +1,21 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
+/* Kavanaka brand tokens — lime is the primary accent (fills only, paired
+ * with dark ink text, never white — lime is too light for white-on-lime
+ * contrast). Green is for readable brand-colored text/icons on light
+ * backgrounds. Aqua is reserved for map/location/discovery contexts only. */
+@theme {
+  --color-kavanaka-lime: #b7d916;
+  --color-kavanaka-green: #72ad18;
+  --color-kavanaka-aqua: #25bec3;
+  --color-kavanaka-ink: #191a16;
+  --color-kavanaka-cream: #f7f6f1;
+}
+
 :root {
-  --background: #ebe8df;
-  --foreground: #25231f;
+  --background: #f7f6f1;
+  --foreground: #191a16;
 }
 
 * {

@@ -23,7 +23,7 @@ export default function CategoryChips({ selectedTab, onSelectTab }: CategoryChip
           >
             {tab}
             {isSelected ? (
-              <span className="absolute inset-x-0 -bottom-1.5 h-[2.5px] rounded-full bg-orange-500" />
+              <span className="absolute inset-x-0 -bottom-1.5 h-[2.5px] rounded-full bg-kavanaka-lime" />
             ) : null}
           </button>
         );

@@ -96,7 +96,7 @@ export default function ImageCropModal({ imageSrc, shape, aspect, onCancel, onCr
           value={zoom}
           onChange={(event) => setZoom(Number(event.target.value))}
           aria-label="Zoom"
-          className="w-full accent-orange-500"
+          className="w-full accent-kavanaka-lime"
         />
 
         {error ? <p className="text-center text-xs text-red-400">{error}</p> : null}
@@ -114,7 +114,7 @@ export default function ImageCropModal({ imageSrc, shape, aspect, onCancel, onCr
             type="button"
             onClick={handleSave}
             disabled={isSaving || !croppedAreaPixels}
-            className="flex-1 rounded-full bg-orange-500 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            className="flex-1 rounded-full bg-kavanaka-lime py-2.5 text-sm font-bold text-kavanaka-ink disabled:opacity-50"
           >
             {isSaving ? "Saving…" : "Use Photo"}
           </button>

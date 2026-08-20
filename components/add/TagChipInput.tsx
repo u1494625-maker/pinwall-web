@@ -51,14 +51,14 @@ export default function TagChipInput({ tags, onTagsChange }: TagChipInputProps) 
       {tags.map((tag, index) => (
         <span
           key={tag}
-          className="flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700"
+          className="flex items-center gap-1 rounded-full bg-kavanaka-lime/15 px-2.5 py-1 text-xs font-semibold text-kavanaka-green"
         >
           #{tag}
           <button
             type="button"
             onClick={() => removeTag(index)}
             aria-label={`Remove tag ${tag}`}
-            className="text-orange-400 hover:text-orange-600"
+            className="text-kavanaka-green/60 hover:text-kavanaka-green"
           >
             ×
           </button>

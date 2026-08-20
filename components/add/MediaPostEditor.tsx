@@ -627,10 +627,10 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         >
           {mode === "photo" && mediaItems.length > 1 ? (
             <>
-              <div className="flex items-center justify-between gap-3 rounded-2xl bg-orange-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-kavanaka-aqua/10 px-4 py-3">
                 <div>
-                  <p className="text-[12px] font-semibold text-orange-800">More than one location?</p>
-                  <p className="mt-0.5 text-[11px] text-orange-700">Set locations for individual photos.</p>
+                  <p className="text-[12px] font-semibold text-kavanaka-aqua">More than one location?</p>
+                  <p className="mt-0.5 text-[11px] text-stone-600">Set locations for individual photos.</p>
                 </div>
                 <button
                   type="button"
@@ -639,7 +639,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
                   aria-label="Turn per-photo locations on or off"
                   onClick={handleTogglePerPhotoLocationMode}
                   className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    perPhotoLocationMode ? "bg-orange-500" : "bg-stone-200"
+                    perPhotoLocationMode ? "bg-kavanaka-aqua" : "bg-stone-200"
                   }`}
                 >
                   <span

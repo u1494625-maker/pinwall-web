@@ -39,7 +39,7 @@ export default function PostLocationFields({
           aria-checked={showOnMap}
           onClick={onToggleShowOnMap}
           className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-            showOnMap ? "bg-orange-500" : "bg-stone-200"
+            showOnMap ? "bg-kavanaka-aqua" : "bg-stone-200"
           }`}
         >
           <span

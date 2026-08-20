@@ -59,7 +59,7 @@ export default function SearchScreen() {
           </Link>
           <form
             onSubmit={submitSearch}
-            className="flex flex-1 items-center gap-2 rounded-full bg-stone-100 px-4 py-3 focus-within:ring-2 focus-within:ring-orange-300"
+            className="flex flex-1 items-center gap-2 rounded-full bg-stone-100 px-4 py-3 focus-within:ring-2 focus-within:ring-kavanaka-lime/60"
           >
             <span aria-hidden="true" className="text-stone-500">⌕</span>
             <label htmlFor="search-input" className="sr-only">Search places</label>
@@ -84,7 +84,7 @@ export default function SearchScreen() {
         <FeedSkeleton />
       ) : results.length === 0 ? (
         <div className="mx-4 mt-6 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
-          <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-orange-100 text-2xl">⌕</div>
+          <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-kavanaka-lime/15 text-2xl">⌕</div>
           <h2 className="text-lg font-bold">No results for &ldquo;{trimmedQuery}&rdquo;</h2>
           <p className="mt-2 text-sm text-stone-500">Try different keywords.</p>
         </div>

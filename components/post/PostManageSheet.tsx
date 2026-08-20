@@ -21,9 +21,6 @@ const CLOSE_ANIMATION_MS = 200;
  * Built on the native <dialog> element, matching components/add/AddPostActionSheet.tsx's
  * pattern (showModal() backdrop + slide-up transition) rather than a new sheet mechanism.
  *
- * Privacy is still shown disabled ("Soon") so the sheet's shape stays settled for the
- * phase that implements it — it has no onClick and does nothing when tapped.
- *
  * The parent remounts this component (via a changing `key`) each time it opens, so internal
  * step/error/deletion state always starts fresh without resetting state inside an effect.
  */
@@ -119,14 +116,6 @@ export default function PostManageSheet({ open, post, onClose, onDeleted }: Post
                 className="flex w-full items-center rounded-2xl px-4 py-4 text-left transition-colors hover:bg-stone-50 active:bg-stone-100"
               >
                 <span className="text-base font-semibold text-stone-900">Edit</span>
-              </button>
-              <button
-                type="button"
-                disabled
-                className="flex w-full items-center justify-between rounded-2xl px-4 py-4 text-left opacity-40"
-              >
-                <span className="text-base font-semibold text-stone-900">Privacy</span>
-                <span className="text-[11px] font-bold uppercase tracking-wide text-stone-400">Soon</span>
               </button>
               <button
                 type="button"

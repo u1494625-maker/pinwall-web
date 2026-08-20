@@ -220,7 +220,7 @@ export default function PinWallHome() {
           ) : mapsFeedPosts.length > 0 ? (
             <>
               <div className="flex items-center justify-end px-4 pb-1 pt-3">
-                <Link href="/map" className="text-xs font-bold text-orange-600">
+                <Link href="/map" className="text-xs font-bold text-kavanaka-aqua">
                   Change area ›
                 </Link>
               </div>
@@ -231,7 +231,7 @@ export default function PinWallHome() {
             </>
           ) : (
             <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
-              <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-orange-100 text-2xl">📍</div>
+              <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-kavanaka-aqua/15 text-2xl">📍</div>
               <h2 className="text-lg font-bold">No posts in this area yet</h2>
               <p className="mt-2 text-sm text-stone-500">Try exploring a different part of the map.</p>
               <Link href="/map" className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white">
@@ -241,7 +241,7 @@ export default function PinWallHome() {
           )
         ) : (
           <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
-            <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-orange-100 text-2xl">📍</div>
+            <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-kavanaka-aqua/15 text-2xl">📍</div>
             <h2 className="text-lg font-bold">No area selected</h2>
             <p className="mt-2 text-sm text-stone-500">Choose an area on the Map to explore posts here.</p>
             <Link href="/map" className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white">

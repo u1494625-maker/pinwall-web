@@ -31,7 +31,7 @@ export default function LoginScreen() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-8 text-center">
       <p className="text-2xl font-black tracking-[-0.06em] text-stone-900">
-        Kavanaka<span className="text-orange-500">.</span>
+        Kavanaka<span className="text-kavanaka-lime">.</span>
       </p>
 
       <h1 className="mt-10 text-2xl font-black tracking-tight text-stone-900">Welcome to Kavanaka</h1>
