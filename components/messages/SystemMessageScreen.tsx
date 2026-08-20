@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import DemoPhoto from "@/components/DemoPhoto";
 import { setCurrentlyOpenConversationId } from "@/lib/messages";
 import { formatRelativeDate } from "@/lib/postDisplay";
 import {
@@ -23,25 +24,6 @@ function BackButton({ onBack }: { onBack: () => void }) {
     >
       ‹
     </button>
-  );
-}
-
-/** Same glyph as ConversationList's System Message row, so the icon reads as
- *  the same identity in both places. */
-function ShieldIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-5"
-    >
-      <path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5l-8-3Z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
   );
 }
 
@@ -114,9 +96,7 @@ export default function SystemMessageScreen() {
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#fbfaf7] shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-100 bg-[#fbfaf7]/95 px-4 py-3 backdrop-blur">
         <BackButton onBack={() => router.back()} />
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-stone-900 text-white">
-          <ShieldIcon />
-        </span>
+        <DemoPhoto src="/system-message-avatar.png" alt="System Message" className="size-9 shrink-0 rounded-full" />
         <span className="truncate text-sm font-black text-stone-900">System Message</span>
       </div>
 

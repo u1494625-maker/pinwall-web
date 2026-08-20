@@ -9,7 +9,7 @@ import { getUnreadNotificationCounts, type UnreadNotificationCounts } from "@/li
 
 function ThumbsUpIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className="size-5">
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-8">
       <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
     </svg>
   );
@@ -17,7 +17,7 @@ function ThumbsUpIcon() {
 
 function PersonIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className="size-5">
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-8">
       <circle cx="12" cy="8" r="4" />
       <path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" />
     </svg>
@@ -26,7 +26,7 @@ function PersonIcon() {
 
 function ChatIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className="size-5">
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-8">
       <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1Z" />
     </svg>
   );
@@ -75,16 +75,12 @@ export default function MessagesHome() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <header className="px-5 pb-1 pt-8 text-center">
-        <h1 className="text-2xl font-black tracking-tight text-stone-900">Messages</h1>
-      </header>
-
-      <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-5">
+      <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-8">
         {categories.map(({ countKey, label, href, accent, Icon }) => {
           const count = counts[countKey];
           return (
             <Link key={countKey} href={href} className="flex flex-col items-center gap-2 text-center">
-              <span className={`relative grid size-12 place-items-center rounded-2xl ${accent}`}>
+              <span className={`relative grid size-16 place-items-center rounded-2xl ${accent}`}>
                 <Icon />
                 {count > 0 ? (
                   <span className="absolute -right-1 -top-1 grid min-w-[18px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
@@ -92,7 +88,7 @@ export default function MessagesHome() {
                   </span>
                 ) : null}
               </span>
-              <span className="text-[11px] font-semibold leading-tight text-stone-600">{label}</span>
+              <span className="text-sm font-bold leading-tight text-stone-600">{label}</span>
             </Link>
           );
         })}

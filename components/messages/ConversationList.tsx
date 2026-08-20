@@ -17,25 +17,6 @@ function ConversationRowSkeleton() {
   );
 }
 
-/** Simple shield/checkmark glyph identifying the System Message row — never
- *  a real user's avatar or initial, so it can't be mistaken for one. */
-function SystemMessageIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-6"
-    >
-      <path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5l-8-3Z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  );
-}
-
 /** Real 1-to-1 conversation list, newest activity first — mounted below the
  *  Phase 2 notification tiles on the Messages home. Each row's own unread
  *  count comes straight from get_conversations(); this list never marks
@@ -85,9 +66,7 @@ export default function ConversationList() {
         return (
           <Link key={conversation.id} href={href} className="flex items-center gap-3 px-4 py-3.5">
             {isSystem ? (
-              <span className="grid size-14 shrink-0 place-items-center rounded-full bg-stone-900 text-white">
-                <SystemMessageIcon />
-              </span>
+              <DemoPhoto src="/system-message-avatar.png" alt="System Message" className="size-14 shrink-0 rounded-full" />
             ) : conversation.otherAvatarUrl ? (
               <DemoPhoto src={conversation.otherAvatarUrl} alt="" className="size-14 shrink-0 rounded-full" />
             ) : (

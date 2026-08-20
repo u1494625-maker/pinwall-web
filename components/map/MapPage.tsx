@@ -482,7 +482,7 @@ export default function MapPage() {
               type="button"
               onClick={() => handleSelectTimeFilter(option.value)}
               aria-pressed={timeFilter === option.value}
-              className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors ${
+              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors ${
                 timeFilter === option.value ? "bg-stone-900 text-white" : "text-stone-500"
               }`}
             >
