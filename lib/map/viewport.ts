@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { Post } from "@/types/post";
+import type { Post, PostMedia } from "@/types/post";
 import type { MapBounds, MapViewport } from "./types";
 
 const VIEWPORT_KEY = "pinwall_map_viewport";
@@ -93,17 +93,45 @@ export function hasValidMapLocation(
   return post.showOnMap && typeof post.latitude === "number" && typeof post.longitude === "number";
 }
 
-function isPostInBounds(post: Post, bounds: MapBounds): boolean {
-  return (
-    hasValidMapLocation(post) &&
-    post.latitude >= bounds.south &&
-    post.latitude <= bounds.north &&
-    post.longitude >= bounds.west &&
-    post.longitude <= bounds.east
-  );
+function isPointInBounds(lat: number, lng: number, bounds: MapBounds): boolean {
+  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
 }
 
-/** Every location-enabled post (image, video, or text) that falls inside the given bounds. */
+/**
+ * Every point this post could actually be plotted at on the Map: each
+ * per-photo location if any of its media has one, otherwise its single
+ * post-level location (if valid) — same precedence rule as
+ * lib/map/clustering.ts's buildMapItems, duplicated here rather than
+ * imported (clustering.ts already imports hasValidMapLocation from this
+ * file, so importing back from it would be circular). Keeping the two in
+ * sync matters: this is "does this post have a marker anywhere," so it must
+ * agree with whichever points actually render as markers there.
+ */
+function postMapPoints(post: Post): { lat: number; lng: number }[] {
+  const locatedMedia = post.media.filter(
+    (media): media is PostMedia & { latitude: number; longitude: number } =>
+      media.latitude != null && media.longitude != null,
+  );
+  if (locatedMedia.length > 0) {
+    return locatedMedia.map((media) => ({ lat: media.latitude, lng: media.longitude }));
+  }
+  if (hasValidMapLocation(post)) {
+    return [{ lat: post.latitude, lng: post.longitude }];
+  }
+  return [];
+}
+
+/** A post qualifies the moment ANY one of its map points falls inside the
+ *  given bounds — a multi-location post must not require every one of its
+ *  photos to be simultaneously visible, only at least one. */
+function isPostInBounds(post: Post, bounds: MapBounds): boolean {
+  return postMapPoints(post).some((point) => isPointInBounds(point.lat, point.lng, bounds));
+}
+
+/** Every location-enabled post (image, video, or text) with at least one map
+ *  point inside the given bounds — each qualifying post appears exactly
+ *  once, with its full original media list, regardless of how many of its
+ *  own points are visible. */
 export function filterPostsInBounds(posts: Post[], bounds: MapBounds): Post[] {
   return posts.filter((post) => isPostInBounds(post, bounds));
 }
