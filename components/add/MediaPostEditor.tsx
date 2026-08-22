@@ -4,12 +4,21 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import ComposerBottomBar from "@/components/add/ComposerBottomBar";
 import ComposerTopBar from "@/components/add/ComposerTopBar";
+import DraftRestoredBanner from "@/components/add/DraftRestoredBanner";
 import MediaComposerFields from "@/components/add/MediaComposerFields";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import {
+  clearDraft,
+  draftKeyForCreate,
+  DRAFT_AUTOSAVE_DEBOUNCE_MS,
+  loadDraft,
+  saveDraft,
+  type ComposerDraft,
+} from "@/lib/composerDraft";
 import { useMediaComposer, type MediaComposerItem } from "@/lib/mediaComposer";
 import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { addPost, type NewPostMediaInput } from "@/lib/posts";
-import { deletePostMedia, uploadPostMedia } from "@/lib/storage";
+import { deletePostMedia, uploadPostMedia, uploadVideoResumable } from "@/lib/storage";
 import { generateVideoThumbnail } from "@/lib/videoThumbnail";
 
 type MediaPostEditorProps = {
@@ -54,12 +63,28 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const { user } = useAuth();
   const hasAutoOpenedRef = useRef(false);
 
-  const [title, setTitle] = useState("");
-  const [caption, setCaption] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const draftKey = draftKeyForCreate();
+  // Read once at mount — a later change to the draft in storage (e.g. from
+  // another tab) is never reflected back into an already-open composer.
+  const [initialDraft] = useState<ComposerDraft | null>(() => loadDraft(draftKey));
+  const [showDraftBanner, setShowDraftBanner] = useState(() => initialDraft !== null);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const composer = useMediaComposer();
+  const [title, setTitle] = useState(() => initialDraft?.title ?? "");
+  const [caption, setCaption] = useState(() => initialDraft?.caption ?? "");
+  const [tags, setTags] = useState<string[]>(() => initialDraft?.tags ?? []);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Fraction 0–1 while a video is uploading via the resumable path; null the
+  // rest of the time (including for a photo-only post, which never touches
+  // this at all). Surfaced through ComposerBottomBar's existing
+  // submittingLabel prop rather than adding a new progress-bar component.
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+
+  const composer = useMediaComposer({
+    initialShowOnMap: initialDraft?.showOnMap,
+    initialCoords: initialDraft?.coords ?? null,
+    initialPerPhotoLocationMode: initialDraft?.perPhotoLocationMode,
+  });
   const {
     fileInputRef,
     mediaItems,
@@ -93,6 +118,60 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       fileInputRef.current?.click();
     }
   }, [initialSource, fileInputRef]);
+
+  // Debounced autosave — text/settings only, never the local media Files
+  // themselves (those aren't JSON-serializable and, more importantly,
+  // aren't meant to survive a reload at all in this version — see
+  // lib/composerDraft.ts). Skipped entirely once a submit is underway;
+  // nothing that matters changes mid-submit, and it would otherwise race
+  // with the clear-on-success below.
+  useEffect(() => {
+    if (isSubmitting) return;
+
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      saveDraft(draftKey, {
+        version: 1,
+        mode: "create",
+        title,
+        caption,
+        tags,
+        showOnMap,
+        coords,
+        perPhotoLocationMode,
+        existingMediaOrder: [], // create never has pre-existing server media
+        knownServerMediaIds: [], // create never has pre-existing server media
+        hasUnsavedLocalMedia: mediaItems.some((item) => item.kind === "new"),
+        savedAt: Date.now(),
+      });
+    }, DRAFT_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [draftKey, isSubmitting, title, caption, tags, showOnMap, coords, perPhotoLocationMode, mediaItems]);
+
+  function cancelPendingDraftSave() {
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    }
+  }
+
+  // Preserves the exact same destination (a plain push to "/") the default
+  // ComposerTopBar Link would have used — only adding the draft-clear side
+  // effect, not changing where Cancel goes.
+  function handleCancel() {
+    cancelPendingDraftSave();
+    clearDraft(draftKey);
+    router.push("/");
+  }
+
+  function handleDiscardDraft() {
+    cancelPendingDraftSave();
+    clearDraft(draftKey);
+    setShowDraftBanner(false);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -145,7 +224,20 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
             : item.imageDiagnostics
               ? `${item.imageDiagnostics.optimizedWidth}/${item.imageDiagnostics.optimizedHeight}`
               : await measureImageAspectRatio(item.previewUrl);
-        const { url, path } = await uploadWithDiagnostics(item, user.id, draftId);
+        let url: string;
+        let path: string;
+        if (item.type === "video") {
+          setVideoUploadProgress(0);
+          try {
+            ({ url, path } = await uploadVideoResumable(item.file, user.id, draftId, {
+              onProgress: setVideoUploadProgress,
+            }));
+          } finally {
+            setVideoUploadProgress(null);
+          }
+        } else {
+          ({ url, path } = await uploadWithDiagnostics(item, user.id, draftId));
+        }
         uploadedPaths.push(path);
 
         let thumbnailUrl: string | undefined;
@@ -191,6 +283,8 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         media,
       });
 
+      cancelPendingDraftSave();
+      clearDraft(draftKey);
       router.replace("/me");
     } catch (err) {
       if (uploadedPaths.length > 0) {
@@ -217,9 +311,16 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <ComposerTopBar />
+      <ComposerTopBar onCancel={handleCancel} />
 
       <form onSubmit={handleSubmit} className="space-y-5 px-5 pt-4">
+        {showDraftBanner ? (
+          <DraftRestoredBanner
+            needsMediaReselect={initialDraft?.hasUnsavedLocalMedia ?? false}
+            onDiscard={handleDiscardDraft}
+          />
+        ) : null}
+
         <MediaComposerFields
           fileInputRef={fileInputRef}
           mediaItems={mediaItems}
@@ -248,7 +349,13 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           onClearLocationForSelected={handleClearLocationForSelectedPhotos}
         />
 
-        <ComposerBottomBar isSubmitting={isSubmitting} error={error} />
+        <ComposerBottomBar
+          isSubmitting={isSubmitting}
+          error={error}
+          submittingLabel={
+            videoUploadProgress != null ? `Uploading video… ${Math.round(videoUploadProgress * 100)}%` : "Publishing…"
+          }
+        />
       </form>
     </main>
   );

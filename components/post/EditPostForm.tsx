@@ -2,15 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import ComposerBottomBar from "@/components/add/ComposerBottomBar";
 import ComposerTopBar from "@/components/add/ComposerTopBar";
+import DraftRestoredBanner from "@/components/add/DraftRestoredBanner";
 import MediaComposerFields from "@/components/add/MediaComposerFields";
 import PostLocationFields from "@/components/add/PostLocationFields";
 import TagChipInput from "@/components/add/TagChipInput";
 import TitleField from "@/components/add/TitleField";
 import DemoPhoto from "@/components/DemoPhoto";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import {
+  clearDraft,
+  draftKeyForEdit,
+  DRAFT_AUTOSAVE_DEBOUNCE_MS,
+  loadDraft,
+  saveDraft,
+  type ComposerDraft,
+} from "@/lib/composerDraft";
 import { useMediaComposer, type ExistingMediaSeed } from "@/lib/mediaComposer";
 import { getDisplayTitle, measureImageAspectRatio, resolveImageAspectRatio } from "@/lib/postDisplay";
 import { getPostById, updatePost, updatePostWithMedia, type EditPostMediaInput } from "@/lib/posts";
@@ -209,6 +218,24 @@ function EditSimplePostFields({ post }: { post: Post }) {
   );
 }
 
+/** post_media -> ExistingMediaSeed, using the server's own current location
+ *  unless a locationOverride is given (a restored draft's saved value for
+ *  this specific media id). url/storagePath/aspectRatio/thumbnailUrl always
+ *  come from the server — a draft never carries them at all. */
+function mediaToSeed(media: Post["media"][number], locationOverride?: { lat: number; lng: number }): ExistingMediaSeed {
+  return {
+    id: media.id,
+    type: media.type,
+    url: media.url,
+    storagePath: media.storagePath,
+    aspectRatio: media.aspectRatio,
+    thumbnailUrl: media.thumbnailUrl,
+    location:
+      locationOverride ??
+      (media.latitude != null && media.longitude != null ? { lat: media.latitude, lng: media.longitude } : undefined),
+  };
+}
+
 /**
  * Photo posts: full add/delete/reorder/location editing, sharing the exact
  * same state machine (useMediaComposer) and JSX (MediaComposerFields) as
@@ -222,22 +249,56 @@ function EditPhotoPostFields({ post }: { post: Post }) {
   const router = useRouter();
   const { user } = useAuth();
 
-  const [title, setTitle] = useState(post.title ?? "");
-  const [caption, setCaption] = useState(post.caption);
-  const [tags, setTags] = useState<string[]>(post.tags);
+  const draftKey = draftKeyForEdit(post.id);
+  // Read once at mount — a later change to the draft in storage (e.g. from
+  // another tab) is never reflected back into an already-open composer.
+  const [initialDraft] = useState<ComposerDraft | null>(() => {
+    const draft = loadDraft(draftKey);
+    return draft && draft.postId === post.id ? draft : null;
+  });
+  const [showDraftBanner, setShowDraftBanner] = useState(() => initialDraft !== null);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [title, setTitle] = useState(() => initialDraft?.title ?? post.title ?? "");
+  const [caption, setCaption] = useState(() => initialDraft?.caption ?? post.caption);
+  const [tags, setTags] = useState<string[]>(() => initialDraft?.tags ?? post.tags);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [initialItems] = useState<ExistingMediaSeed[]>(() =>
-    post.media.map((media) => ({
-      id: media.id,
-      type: media.type,
-      url: media.url,
-      storagePath: media.storagePath,
-      aspectRatio: media.aspectRatio,
-      thumbnailUrl: media.thumbnailUrl,
-      location: media.latitude != null && media.longitude != null ? { lat: media.latitude, lng: media.longitude } : undefined,
-    })),
+  // The full set of media ids the server had when this draft session
+  // began — captured once (from the draft if one already exists, otherwise
+  // from the current fresh fetch) and never recomputed, so it keeps
+  // meaning "as of draft creation" across every reload for the life of
+  // this draft. See knownServerMediaIds's own doc comment in
+  // lib/composerDraft.ts for why reconciliation needs this.
+  const [knownServerMediaIds] = useState<number[]>(
+    () => initialDraft?.knownServerMediaIds ?? post.media.map((media) => media.id),
   );
+
+  const [initialItems] = useState<ExistingMediaSeed[]>(() => {
+    if (!initialDraft) return post.media.map((media) => mediaToSeed(media));
+
+    // Reconcile the draft's saved order/locations against the FRESH server
+    // media. A draft entry whose id no longer exists server-side (deleted
+    // via another session since the draft was saved) is silently dropped
+    // rather than shown broken. Server media the draft doesn't mention is
+    // only appended if it's genuinely new (absent from
+    // knownServerMediaIds) — media that WAS known at draft-creation time
+    // but isn't in existingMediaOrder was deliberately deleted by the user
+    // in this session and must stay deleted, not be resurrected.
+    const remaining = new Map(post.media.map((media) => [media.id, media]));
+    const seeded: ExistingMediaSeed[] = [];
+    for (const entry of initialDraft.existingMediaOrder) {
+      const media = remaining.get(entry.id);
+      if (!media) continue;
+      seeded.push(mediaToSeed(media, entry.location));
+      remaining.delete(entry.id);
+    }
+    const knownIds = new Set(initialDraft.knownServerMediaIds);
+    for (const media of post.media) {
+      if (remaining.has(media.id) && !knownIds.has(media.id)) seeded.push(mediaToSeed(media));
+    }
+    return seeded;
+  });
 
   // A real multi-spot post is persisted with posts.show_on_map = false (the
   // create flow deliberately never sets both a post-level location AND
@@ -251,8 +312,11 @@ function EditPhotoPostFields({ post }: { post: Post }) {
 
   const composer = useMediaComposer({
     initialItems,
-    initialShowOnMap: post.showOnMap || hasPerPhotoLocations,
-    initialCoords: post.latitude != null && post.longitude != null ? { lat: post.latitude, lng: post.longitude } : null,
+    initialShowOnMap: initialDraft?.showOnMap ?? (post.showOnMap || hasPerPhotoLocations),
+    initialCoords:
+      initialDraft?.coords ??
+      (post.latitude != null && post.longitude != null ? { lat: post.latitude, lng: post.longitude } : null),
+    initialPerPhotoLocationMode: initialDraft?.perPhotoLocationMode,
   });
   const {
     fileInputRef,
@@ -276,6 +340,71 @@ function EditPhotoPostFields({ post }: { post: Post }) {
     handleSetLocationForSelectedPhotos,
     handleClearLocationForSelectedPhotos,
   } = composer;
+
+  // Debounced autosave — text/settings and existing-media order/location/
+  // deletion state only, never the local media Files themselves (those
+  // aren't JSON-serializable and aren't meant to survive a reload in this
+  // version — see lib/composerDraft.ts). Skipped entirely once a submit is
+  // underway, so it can't race with the clear-on-success below.
+  useEffect(() => {
+    if (isSubmitting) return;
+
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      saveDraft(draftKey, {
+        version: 1,
+        mode: "edit",
+        postId: post.id,
+        title,
+        caption,
+        tags,
+        showOnMap,
+        coords,
+        perPhotoLocationMode,
+        existingMediaOrder: mediaItems
+          .filter((item) => item.kind === "existing")
+          .map((item) => ({ id: item.id, location: item.location })),
+        knownServerMediaIds,
+        hasUnsavedLocalMedia: mediaItems.some((item) => item.kind === "new"),
+        savedAt: Date.now(),
+      });
+    }, DRAFT_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [
+    draftKey,
+    post.id,
+    isSubmitting,
+    title,
+    caption,
+    tags,
+    showOnMap,
+    coords,
+    perPhotoLocationMode,
+    mediaItems,
+    knownServerMediaIds,
+  ]);
+
+  function cancelPendingDraftSave() {
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    }
+  }
+
+  function handleCancel() {
+    cancelPendingDraftSave();
+    clearDraft(draftKey);
+    router.back();
+  }
+
+  function handleDiscardDraft() {
+    cancelPendingDraftSave();
+    clearDraft(draftKey);
+    setShowDraftBanner(false);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -398,6 +527,8 @@ function EditPhotoPostFields({ post }: { post: Post }) {
         }
       }
 
+      cancelPendingDraftSave();
+      clearDraft(draftKey);
       router.replace(`/post/${post.id}`);
     } catch (err) {
       // The RPC transaction never committed — existing media/Storage is
@@ -418,9 +549,16 @@ function EditPhotoPostFields({ post }: { post: Post }) {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <ComposerTopBar onCancel={() => router.back()} />
+      <ComposerTopBar onCancel={handleCancel} />
 
       <form onSubmit={handleSubmit} className="space-y-5 px-5 pt-4">
+        {showDraftBanner ? (
+          <DraftRestoredBanner
+            needsMediaReselect={initialDraft?.hasUnsavedLocalMedia ?? false}
+            onDiscard={handleDiscardDraft}
+          />
+        ) : null}
+
         <MediaComposerFields
           fileInputRef={fileInputRef}
           mediaItems={mediaItems}

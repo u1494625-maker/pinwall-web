@@ -1,5 +1,11 @@
 import { supabase } from "@/lib/supabase/client";
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
+/** `https://<project-ref>.supabase.co` -> `<project-ref>` — used only to build
+ *  the resumable-upload hostname below. */
+const SUPABASE_PROJECT_REF = SUPABASE_URL.replace(/^https?:\/\//, "").split(".")[0];
+
 // GIF is not a supported photo format — no animated-image handling exists
 // anywhere in this app, so it's excluded here rather than silently accepted
 // and then mishandled.
@@ -16,7 +22,7 @@ export const ALLOWED_MEDIA_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYP
 // Photo sizing is no longer a flat byte ceiling — see lib/imageOptimization.ts
 // for the source-safety limit, optimization target, and dimension cap that
 // replace what used to be a single MAX_IMAGE_BYTES here.
-export const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50MB
+export const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300MB
 
 const STORAGE_BUCKET = "post-image";
 
@@ -62,6 +68,129 @@ export async function uploadPostMedia(file: File, userId: string, draftId: strin
 
   const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
 
+  if (!data?.publicUrl) {
+    throw new Error("Failed to get a public URL for the uploaded file.");
+  }
+
+  return { url: data.publicUrl, path };
+}
+
+export type ResumableUploadCallbacks = {
+  /** Fraction 0–1, called as chunks are acknowledged by the server. */
+  onProgress?: (fraction: number) => void;
+  /** Aborting sends a real termination request to Supabase (shouldTerminate
+   *  = true) rather than just stopping locally, so an interrupted/cancelled
+   *  video doesn't leave a resumable session hanging server-side. */
+  signal?: AbortSignal;
+};
+
+/**
+ * Uploads a video via Supabase Storage's resumable (TUS) endpoint instead of
+ * uploadPostMedia's single-shot PUT — same bucket, same path scheme, same
+ * RLS ("Users can upload into their own post-image folder" is bucket+path
+ * scoped, not upload-method scoped — confirmed live against this project
+ * before writing this function: an unauthenticated request is rejected at
+ * the JWT stage, and a request bearing only the anon key correctly fails
+ * RLS with "new row violates row-level security policy," exactly like the
+ * existing upload path). Only the transport differs, so a large file can
+ * survive a temporary network drop: tus-js-client's own retryDelays resume
+ * the SAME in-memory Upload instance from the server-acknowledged offset
+ * automatically. This deliberately does not persist upload state across a
+ * reload/tab close (no findPreviousUploads/localStorage fingerprint) — that
+ * is out of scope for this version; see lib/composerDraft.ts's own doc
+ * comment for why.
+ *
+ * Endpoint host, the fixed 6MB chunk size, the metadata key names, and
+ * retryDelays all match Supabase's current resumable-upload documentation
+ * verbatim — chunkSize specifically is documented as a hard requirement,
+ * not a tunable.
+ */
+export async function uploadVideoResumable(
+  file: File,
+  userId: string,
+  draftId: string,
+  { onProgress, signal }: ResumableUploadCallbacks = {},
+): Promise<UploadedMedia> {
+  const path = `${userId}/${draftId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error("You need to be signed in to upload a video.");
+  }
+
+  // Dynamically imported so the TUS client is only fetched when a video is
+  // actually being uploaded — matches this codebase's existing pattern for
+  // other client-only heavy libraries (leaflet, heic-to).
+  const { Upload, DetailedError } = await import("tus-js-client");
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const upload = new Upload(file, {
+      endpoint: `https://${SUPABASE_PROJECT_REF}.storage.supabase.co/storage/v1/upload/resumable`,
+      headers: {
+        authorization: `Bearer ${session.access_token}`,
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        "x-upsert": "false",
+      },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      chunkSize: 6 * 1024 * 1024,
+      metadata: {
+        bucketName: STORAGE_BUCKET,
+        objectName: path,
+        contentType: file.type || "video/mp4",
+        cacheControl: "3600",
+      },
+      onError: (error) => {
+        if (settled) return;
+        settled = true;
+        // A DetailedError with no originalResponse means the request never
+        // got a reply at all (connection dropped) — retryDelays already
+        // exhausted its own attempts by the time this fires. Anything with
+        // a real response is Supabase actually rejecting the upload.
+        const isNetworkFailure = error instanceof DetailedError && !error.originalResponse;
+        const reason = isNetworkFailure
+          ? "the network connection was interrupted during upload. Check your connection and try again."
+          : `${error.message}.`;
+        reject(new Error(`"${file.name}" couldn't be uploaded — ${reason}`));
+      },
+      onProgress: (bytesUploaded, bytesTotal) => {
+        if (bytesTotal > 0) onProgress?.(bytesUploaded / bytesTotal);
+      },
+      onSuccess: () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      },
+    });
+
+    if (signal) {
+      if (signal.aborted) {
+        settled = true;
+        upload.abort(true).catch(() => {});
+        reject(new Error("Upload cancelled."));
+        return;
+      }
+      signal.addEventListener(
+        "abort",
+        () => {
+          if (settled) return;
+          settled = true;
+          upload.abort(true).catch(() => {});
+          reject(new Error("Upload cancelled."));
+        },
+        { once: true },
+      );
+    }
+
+    upload.start();
+  });
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
   if (!data?.publicUrl) {
     throw new Error("Failed to get a public URL for the uploaded file.");
   }
