@@ -11,6 +11,35 @@ export const MAX_PHOTO_ITEMS = 10;
 /** A video post holds exactly one video — never mixed with photos, never more than one. */
 export const MAX_VIDEO_ITEMS = 1;
 
+/** Known video file extensions, used only as a fallback when file.type is
+ *  empty/ambiguous — see detectMediaType below. Exported so the <input
+ *  accept> string (MediaComposerFields.tsx) stays in sync with what this
+ *  module actually recognizes, rather than duplicating the list. */
+export const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm"];
+
+function hasVideoExtension(fileName: string): boolean {
+  const name = fileName.toLowerCase();
+  return VIDEO_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+/**
+ * iOS Safari (and some other mobile browsers) can hand back a File with an
+ * empty or generic `type` for a video picked from the Photos library —
+ * especially .MOV. Trusting file.type alone for classification silently
+ * mistakes these for images, which then hit the image-decode pipeline
+ * instead of the video path and never surface a clear error. MIME is
+ * trusted first; only when it doesn't clearly say "video/*" or "image/*" do
+ * we fall back to the filename extension — and only for extensions we
+ * actually know are video. Anything else still defaults to "image" (same as
+ * before this fix) rather than being guessed as video.
+ */
+function detectMediaType(file: File): MediaType {
+  const mime = file.type.toLowerCase();
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("image/")) return "image";
+  return hasVideoExtension(file.name) ? "video" : "image";
+}
+
 /**
  * One media item in the composer's ordered list — either an already-
  * persisted photo (kept as-is, possibly moved and/or relocated) or a
@@ -213,12 +242,15 @@ export function useMediaComposer({
     const newItems: MediaComposerItem[] = [];
     let modeConflictMessage: string | null = null;
     let overflowCount = 0;
-    let rejectedCount = 0;
+    let unsupportedVideoCount = 0;
+    let unsupportedPhotoCount = 0;
+    let videoTooLargeCount = 0;
+    let photoTooLargeCount = 0;
     let processingFailedCount = 0;
 
     for (const file of files) {
-      const isVideo = file.type.startsWith("video/");
-      const candidateType: MediaType = isVideo ? "video" : "image";
+      const candidateType = detectMediaType(file);
+      const isVideo = candidateType === "video";
 
       // Product-rule (mode) check first — before wasting HEIC/size work on a
       // file that can't be accepted regardless of its own validity. Both
@@ -245,8 +277,17 @@ export function useMediaComposer({
 
       const isHeicSource = !isVideo && isHeicFile(file);
 
-      if (!isHeicSource && !ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
-        rejectedCount += 1;
+      // MIME is the normal path; a video whose MIME came back empty/generic
+      // but whose filename has a known video extension (the iOS Safari .MOV
+      // case detectMediaType already recognized above) is still validated
+      // as a legitimate, supported video rather than rejected for lacking a
+      // MIME match it was never going to have.
+      const mimeRecognized = ALLOWED_MEDIA_TYPES.includes(file.type as (typeof ALLOWED_MEDIA_TYPES)[number]);
+      const videoRecognizedByExtension = isVideo && !mimeRecognized && hasVideoExtension(file.name);
+
+      if (!isHeicSource && !mimeRecognized && !videoRecognizedByExtension) {
+        if (isVideo) unsupportedVideoCount += 1;
+        else unsupportedPhotoCount += 1;
         continue;
       }
 
@@ -257,7 +298,8 @@ export function useMediaComposer({
       // unrelated ceiling.
       const maxSourceBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_SOURCE_BYTES;
       if (file.size > maxSourceBytes) {
-        rejectedCount += 1;
+        if (isVideo) videoTooLargeCount += 1;
+        else photoTooLargeCount += 1;
         continue;
       }
 
@@ -269,7 +311,7 @@ export function useMediaComposer({
         try {
           fileToUse = await convertHeicToJpeg(file);
         } catch {
-          rejectedCount += 1;
+          processingFailedCount += 1;
           setIsConvertingHeic(false);
           continue;
         }
@@ -317,14 +359,41 @@ export function useMediaComposer({
         `You can add up to ${MAX_PHOTO_ITEMS} photos per post — ${overflowCount} file${overflowCount === 1 ? " was" : "s were"} not added.`,
       );
     }
-    if (rejectedCount > 0) {
+    if (unsupportedVideoCount > 0) {
       messages.push(
-        `${rejectedCount} file${rejectedCount === 1 ? " couldn't" : "s couldn't"} be added — check file type and size (JPEG/PNG/WEBP/AVIF/HEIC photos, MP4/WEBM/MOV videos).`,
+        unsupportedVideoCount === 1
+          ? "This video format isn't supported."
+          : `${unsupportedVideoCount} videos had an unsupported format.`,
+      );
+    }
+    if (unsupportedPhotoCount > 0) {
+      messages.push(
+        unsupportedPhotoCount === 1
+          ? "This photo format isn't supported."
+          : `${unsupportedPhotoCount} photos had an unsupported format.`,
+      );
+    }
+    if (videoTooLargeCount > 0) {
+      const maxVideoMb = Math.round(MAX_VIDEO_BYTES / (1024 * 1024));
+      messages.push(
+        videoTooLargeCount === 1
+          ? `This video is too large. Maximum size is ${maxVideoMb} MB.`
+          : `${videoTooLargeCount} videos were too large. Maximum size is ${maxVideoMb} MB.`,
+      );
+    }
+    if (photoTooLargeCount > 0) {
+      const maxPhotoMb = Math.round(MAX_IMAGE_SOURCE_BYTES / (1024 * 1024));
+      messages.push(
+        photoTooLargeCount === 1
+          ? `This photo is too large. Maximum size is ${maxPhotoMb} MB.`
+          : `${photoTooLargeCount} photos were too large. Maximum size is ${maxPhotoMb} MB.`,
       );
     }
     if (processingFailedCount > 0) {
       messages.push(
-        `${processingFailedCount} photo${processingFailedCount === 1 ? " couldn't" : "s couldn't"} be processed.`,
+        processingFailedCount === 1
+          ? "This photo couldn't be processed."
+          : `${processingFailedCount} photos couldn't be processed.`,
       );
     }
     if (messages.length > 0) setError(messages.join(" "));

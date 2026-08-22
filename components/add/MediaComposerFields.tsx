@@ -2,7 +2,7 @@
 
 import type { ChangeEvent, RefObject } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
-import type { MediaComposerItem, MediaMode } from "@/lib/mediaComposer";
+import { VIDEO_EXTENSIONS, type MediaComposerItem, type MediaMode } from "@/lib/mediaComposer";
 import { ALLOWED_MEDIA_TYPES } from "@/lib/storage";
 import PerPhotoLocationFields from "./PerPhotoLocationFields";
 import PostLocationFields from "./PostLocationFields";
@@ -85,7 +85,12 @@ export default function MediaComposerFields({
           id="media"
           type="file"
           multiple
-          accept={`${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif`}
+          // Extension hints (HEIC's own .heic/.heif, and now video's own
+          // .mp4/.mov/.webm) alongside the MIME list — iOS Safari doesn't
+          // always report a helpful `type` for a file picked from the
+          // Photos library, so the accept filter itself needs both signals
+          // to reliably offer these files in the native picker.
+          accept={`${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif,${VIDEO_EXTENSIONS.join(",")}`}
           capture={captureEnvironment ? "environment" : undefined}
           onChange={onMediaChange}
           className="hidden"
