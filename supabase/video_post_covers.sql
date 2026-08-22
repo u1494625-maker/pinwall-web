@@ -50,6 +50,16 @@ alter table public.post_media
 -- 3. create_post_with_media — also writes thumbnail_storage_path
 -- ============================================================================
 -- Same signature/return type as every earlier version — safe create-or-replace.
+--
+-- IMPORTANT: this must be based on supabase/text_templates.sql's version (the
+-- actual current one — no `author` column, since profile_identity_unification.sql
+-- already dropped it and moved identity onto posts.user_id -> profiles; and
+-- WITH `text_template`, added by text_templates.sql). An earlier draft of this
+-- file was mistakenly based on a pre-profile_identity_unification.sql copy of
+-- this function — it wrote a nonexistent `author` column (causing every
+-- publish to fail with "column author of relation posts does not exist") and
+-- silently dropped text_template support. Fixed here; do not reintroduce
+-- `author` in any form.
 
 create or replace function public.create_post_with_media(
   post_input jsonb,
@@ -62,21 +72,21 @@ declare
   new_post_id bigint;
 begin
   insert into public.posts (
-    title, caption, tags, author, rating, rating_count,
-    show_on_map, latitude, longitude, location_name, user_id
+    title, caption, tags, rating, rating_count,
+    show_on_map, latitude, longitude, location_name, user_id, text_template
   )
   values (
     post_input->>'title',
     post_input->>'caption',
     array(select jsonb_array_elements_text(coalesce(post_input->'tags', '[]'::jsonb))),
-    post_input->>'author',
     coalesce((post_input->>'rating')::real, 0),
     coalesce(post_input->>'ratingCount', 'New'),
     coalesce((post_input->>'showOnMap')::boolean, false),
     (post_input->>'latitude')::double precision,
     (post_input->>'longitude')::double precision,
     post_input->>'locationName',
-    (post_input->>'userId')::uuid
+    (post_input->>'userId')::uuid,
+    post_input->>'textTemplate'
   )
   returning id into new_post_id;
 
