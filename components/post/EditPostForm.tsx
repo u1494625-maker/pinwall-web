@@ -19,7 +19,7 @@ import {
   saveDraft,
   type ComposerDraft,
 } from "@/lib/composerDraft";
-import { useMediaComposer, type CoverAsset, type ExistingMediaSeed, type VideoAsset } from "@/lib/mediaComposer";
+import { useMediaComposer, type ExistingMediaSeed, type VideoAsset } from "@/lib/mediaComposer";
 import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { getPostById, updatePost, updatePostWithMedia, type EditPostMediaInput } from "@/lib/posts";
 import {
@@ -320,13 +320,9 @@ function EditPhotoPostFields({ post }: { post: Post }) {
     handleSetLocationForSelectedPhotos,
     handleClearLocationForSelectedPhotos,
     video,
-    cover,
     videoInputRef,
-    coverInputRef,
     handleVideoChange,
     handleRemoveVideo,
-    handleCoverChange,
-    handleRemoveCover,
   } = composer;
 
   // Debounced autosave — text/settings and existing-media order/location/
@@ -557,13 +553,9 @@ function EditPhotoPostFields({ post }: { post: Post }) {
           onRemoveMedia={handleRemoveMedia}
           onMoveMedia={handleMoveMedia}
           video={video}
-          cover={cover}
           videoInputRef={videoInputRef}
-          coverInputRef={coverInputRef}
           onVideoChange={handleVideoChange}
           onRemoveVideo={handleRemoveVideo}
-          onCoverChange={handleCoverChange}
-          onRemoveCover={handleRemoveCover}
           title={title}
           onTitleChange={setTitle}
           caption={caption}
@@ -588,30 +580,21 @@ function EditPhotoPostFields({ post }: { post: Post }) {
   );
 }
 
-/** post_media -> VideoAsset/CoverAsset seeds for EditVideoPostFields. A
- *  missing thumbnailStoragePath (only possible for a video row published
- *  before this column existed) seeds no cover at all — the required-cover
- *  validation in handleSubmit then forces the user to pick one before they
- *  can save, which is the correct, safe fallback rather than guessing. */
+/** post_media -> VideoAsset seed for EditVideoPostFields. */
 function videoAssetFromMedia(media: Post["media"][number]): VideoAsset {
   return { kind: "existing", url: media.url, storagePath: media.storagePath };
 }
 
-function coverAssetFromMedia(media: Post["media"][number]): CoverAsset | undefined {
-  if (!media.thumbnailUrl || !media.thumbnailStoragePath) return undefined;
-  return { kind: "existing", url: media.thumbnailUrl, storagePath: media.thumbnailStoragePath };
-}
-
 /**
- * Video posts: replace-only-cover, replace-only-video, or replace-both —
- * sharing the same video/cover slots (useMediaComposer) and JSX
- * (MediaComposerFields -> VideoCoverFields) as MediaPostEditor's create
- * flow. Only whichever of {video, cover} is actually staged as "new" gets
- * re-uploaded; the untouched one is never re-uploaded and never deleted.
- * The superseded Storage object for whichever WAS replaced is only removed
- * after update_post_with_media's transaction commits — a failed save always
- * leaves the original working video/cover completely untouched, and only
- * rolls back files THIS attempt uploaded.
+ * Video posts: replace the video only — there is no cover to edit. Sharing
+ * the same video slot (useMediaComposer) and JSX (MediaComposerFields) as
+ * MediaPostEditor's create flow. A legacy row's thumbnail_url/
+ * thumbnail_storage_path (from before the cover feature was removed) are
+ * preserved byte-for-byte on every save — never read or written by anything
+ * here — and only cleaned up by PostManageSheet's delete flow. The
+ * superseded video Storage object is only removed after
+ * update_post_with_media's transaction commits — a failed save always leaves
+ * the original working video completely untouched.
  */
 function EditVideoPostFields({ post }: { post: Post }) {
   const router = useRouter();
@@ -633,11 +616,10 @@ function EditVideoPostFields({ post }: { post: Post }) {
   const [tags, setTags] = useState<string[]>(() => initialDraft?.tags ?? post.tags);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
-  const [stage, setStage] = useState<"uploading-video" | "uploading-cover" | "saving" | null>(null);
+  const [stage, setStage] = useState<"uploading-video" | "saving" | null>(null);
 
   const composer = useMediaComposer({
     initialVideo: videoAssetFromMedia(originalMedia),
-    initialCover: coverAssetFromMedia(originalMedia),
     initialShowOnMap: initialDraft?.showOnMap ?? post.showOnMap,
     initialCoords:
       initialDraft?.coords ??
@@ -669,20 +651,16 @@ function EditVideoPostFields({ post }: { post: Post }) {
     isConvertingHeic,
     handleToggleShowOnMap,
     video,
-    cover,
     videoInputRef,
-    coverInputRef,
     handleVideoChange,
     handleRemoveVideo,
-    handleCoverChange,
-    handleRemoveCover,
   } = composer;
 
   // Debounced autosave — text/settings only, mirroring EditPhotoPostFields.
   // A video post has exactly one post_media row, identified by postId alone
   // (no per-id reconciliation like the photo array needs) — so
   // existingMediaOrder/knownServerMediaIds stay [] here, same as a create
-  // draft. hasUnsavedLocalMedia covers "please re-select" for either slot.
+  // draft. hasUnsavedLocalMedia covers "please re-select" for the video slot.
   useEffect(() => {
     if (isSubmitting) return;
 
@@ -700,7 +678,7 @@ function EditVideoPostFields({ post }: { post: Post }) {
         perPhotoLocationMode: false,
         existingMediaOrder: [],
         knownServerMediaIds: [],
-        hasUnsavedLocalMedia: video?.kind === "new" || cover?.kind === "new",
+        hasUnsavedLocalMedia: video?.kind === "new",
         savedAt: Date.now(),
       });
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS);
@@ -708,7 +686,7 @@ function EditVideoPostFields({ post }: { post: Post }) {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [draftKey, post.id, isSubmitting, title, caption, tags, showOnMap, coords, video, cover]);
+  }, [draftKey, post.id, isSubmitting, title, caption, tags, showOnMap, coords, video]);
 
   function cancelPendingDraftSave() {
     if (draftSaveTimerRef.current) {
@@ -747,10 +725,6 @@ function EditVideoPostFields({ post }: { post: Post }) {
       setError("Add a video before saving.");
       return;
     }
-    if (!cover) {
-      setError("Add a cover image before saving.");
-      return;
-    }
     if (showOnMap && !coords) {
       setError("Choose a location on the map before saving.");
       return;
@@ -782,16 +756,6 @@ function EditVideoPostFields({ post }: { post: Post }) {
         uploadedPaths.push({ path: videoStoragePath, bucket: POST_VIDEO_BUCKET });
       }
 
-      let coverUrl = originalMedia.thumbnailUrl ?? "";
-      let coverStoragePath = originalMedia.thumbnailStoragePath ?? "";
-      if (cover.kind === "new") {
-        setStage("uploading-cover");
-        const uploaded = await uploadPostMedia(cover.file, user.id, draftId);
-        coverUrl = uploaded.url;
-        coverStoragePath = uploaded.path;
-        uploadedPaths.push({ path: coverStoragePath, bucket: POST_IMAGE_BUCKET });
-      }
-
       setStage("saving");
       const trimmedTitle = title.trim();
 
@@ -818,15 +782,20 @@ function EditVideoPostFields({ post }: { post: Post }) {
             // constant) when the video itself was actually replaced.
             aspectRatio: video.kind === "new" ? "4/5" : originalMedia.aspectRatio,
             position: 0,
-            thumbnailUrl: coverUrl,
-            thumbnailStoragePath: coverStoragePath,
+            // Preserved as-is, never user-editable now that the cover feature
+            // is removed — update_post_with_media's retained-row UPDATE
+            // writes these columns unconditionally, so passing through the
+            // post's own current values (rather than omitting them) is what
+            // keeps a legacy row's thumbnail intact across every save.
+            thumbnailUrl: originalMedia.thumbnailUrl,
+            thumbnailStoragePath: originalMedia.thumbnailStoragePath,
           },
         ],
       );
 
-      // Database succeeded — now safe to remove whichever Storage object(s)
-      // were actually superseded. Never runs before the transaction commits,
-      // and never touches the file that wasn't replaced.
+      // Database succeeded — now safe to remove the superseded video.
+      // Never runs before the transaction commits, and never touches the
+      // (untouched, never-edited) thumbnail.
       if (video.kind === "new") {
         try {
           await deletePostMedia(originalMedia.storagePath, POST_VIDEO_BUCKET);
@@ -834,19 +803,12 @@ function EditVideoPostFields({ post }: { post: Post }) {
           console.error("Failed to remove the superseded video from storage:", cleanupErr);
         }
       }
-      if (cover.kind === "new" && originalMedia.thumbnailStoragePath) {
-        try {
-          await deletePostMedia(originalMedia.thumbnailStoragePath, POST_IMAGE_BUCKET);
-        } catch (cleanupErr) {
-          console.error("Failed to remove the superseded cover from storage:", cleanupErr);
-        }
-      }
 
       cancelPendingDraftSave();
       clearDraft(draftKey);
       router.replace(`/post/${post.id}`);
     } catch (err) {
-      // The RPC transaction never committed — the original video/cover are
+      // The RPC transaction never committed — the original video is
       // completely untouched. Only roll back whatever THIS attempt uploaded.
       if (uploadedPaths.length > 0) {
         for (const { path, bucket } of uploadedPaths) {
@@ -885,13 +847,9 @@ function EditVideoPostFields({ post }: { post: Post }) {
           onRemoveMedia={handleRemoveMedia}
           onMoveMedia={handleMoveMedia}
           video={video}
-          cover={cover}
           videoInputRef={videoInputRef}
-          coverInputRef={coverInputRef}
           onVideoChange={handleVideoChange}
           onRemoveVideo={handleRemoveVideo}
-          onCoverChange={handleCoverChange}
-          onRemoveCover={handleRemoveCover}
           title={title}
           onTitleChange={setTitle}
           caption={caption}
@@ -917,9 +875,7 @@ function EditVideoPostFields({ post }: { post: Post }) {
           submittingLabel={
             stage === "uploading-video"
               ? `Uploading video… ${Math.round((videoUploadProgress ?? 0) * 100)}%`
-              : stage === "uploading-cover"
-                ? "Uploading cover…"
-                : "Saving…"
+              : "Saving…"
           }
         />
       </form>

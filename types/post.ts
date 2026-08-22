@@ -12,14 +12,14 @@ export type PostMedia = {
   storagePath: string;
   aspectRatio: string | null;
   position: number;
-  /** User-selected cover image for a video item — required for every video
-   *  published under the current model, used for static previews (e.g. the
-   *  Map marker). Undefined for images. Never used for playback. */
+  /** Legacy cover-image field for a video item, from a since-removed
+   *  feature — no longer settable via the composer, but a video row created
+   *  while it existed keeps it, used for static previews (e.g. the Map
+   *  marker) until the post/video is deleted. Always undefined for a video
+   *  published after the feature's removal, and for images. */
   thumbnailUrl?: string;
-  /** Storage object path for thumbnailUrl (post-image bucket) — kept
-   *  alongside the URL so a video's cover can be reliably deleted/replaced,
-   *  same reasoning as storagePath above. Undefined for images and for a
-   *  video row published before this column existed. */
+  /** Storage object path for thumbnailUrl (post-image bucket) — same legacy,
+   *  optional-compatibility status as thumbnailUrl above. */
   thumbnailStoragePath?: string;
   /** Optional per-photo map location, independent of the post's own
    *  showOnMap/latitude/longitude — see lib/map/clustering.ts's

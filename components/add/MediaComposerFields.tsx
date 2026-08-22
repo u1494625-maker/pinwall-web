@@ -2,19 +2,16 @@
 
 import type { ChangeEvent, RefObject } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
-import {
-  VIDEO_EXTENSIONS,
-  type CoverAsset,
-  type MediaComposerItem,
-  type MediaMode,
-  type VideoAsset,
-} from "@/lib/mediaComposer";
-import { ALLOWED_MEDIA_TYPES } from "@/lib/storage";
+import { VIDEO_EXTENSIONS, type MediaComposerItem, type MediaMode, type VideoAsset } from "@/lib/mediaComposer";
+import { ALLOWED_MEDIA_TYPES, ALLOWED_VIDEO_TYPES } from "@/lib/storage";
 import PerPhotoLocationFields from "./PerPhotoLocationFields";
 import PostLocationFields from "./PostLocationFields";
 import TagChipInput from "./TagChipInput";
 import TitleField from "./TitleField";
-import VideoCoverFields from "./VideoCoverFields";
+
+function videoAssetSrc(asset: VideoAsset): string {
+  return asset.kind === "existing" ? asset.url : asset.previewUrl;
+}
 
 type MediaComposerFieldsProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -29,17 +26,13 @@ type MediaComposerFieldsProps = {
    *  only meaningful for the create flow's "Camera" entry point. */
   captureEnvironment?: boolean;
 
-  /** Video-post-only slots — always present (possibly null/no-op) even for a
+  /** Video-post-only slot — always present (possibly null/no-op) even for a
    *  photo post, since this component's props are shared regardless of mode;
-   *  only rendered when mode === "video" (see VideoCoverFields). */
+   *  only rendered when mode === "video". */
   video: VideoAsset | null;
-  cover: CoverAsset | null;
   videoInputRef: RefObject<HTMLInputElement | null>;
-  coverInputRef: RefObject<HTMLInputElement | null>;
   onVideoChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemoveVideo: () => void;
-  onCoverChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRemoveCover: () => void;
 
   title: string;
   onTitleChange: (value: string) => void;
@@ -80,13 +73,9 @@ export default function MediaComposerFields({
   onMoveMedia,
   captureEnvironment = false,
   video,
-  cover,
   videoInputRef,
-  coverInputRef,
   onVideoChange,
   onRemoveVideo,
-  onCoverChange,
-  onRemoveCover,
   title,
   onTitleChange,
   caption,
@@ -107,17 +96,53 @@ export default function MediaComposerFields({
   return (
     <>
       {mode === "video" ? (
-        <VideoCoverFields
-          video={video}
-          cover={cover}
-          videoInputRef={videoInputRef}
-          coverInputRef={coverInputRef}
-          onVideoChange={onVideoChange}
-          onRemoveVideo={onRemoveVideo}
-          onCoverChange={onCoverChange}
-          onRemoveCover={onRemoveCover}
-          isConvertingHeic={isConvertingHeic}
-        />
+        <div>
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept={`${ALLOWED_VIDEO_TYPES.join(",")},${VIDEO_EXTENSIONS.join(",")}`}
+            onChange={onVideoChange}
+            className="hidden"
+          />
+          {video ? (
+            <div>
+              <video
+                src={videoAssetSrc(video)}
+                controls
+                playsInline
+                preload="metadata"
+                className="aspect-[4/5] w-full rounded-2xl bg-black object-contain"
+              />
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => videoInputRef.current?.click()}
+                  className="rounded-full bg-stone-100 px-3.5 py-1.5 text-[12px] font-bold text-stone-700"
+                >
+                  Replace video
+                </button>
+                {video.kind === "new" ? (
+                  <button
+                    type="button"
+                    onClick={onRemoveVideo}
+                    className="rounded-full bg-stone-100 px-3.5 py-1.5 text-[12px] font-bold text-stone-700"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => videoInputRef.current?.click()}
+              className="grid h-40 w-full place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-2xl text-stone-400"
+              aria-label="Add a video"
+            >
+              +
+            </button>
+          )}
+        </div>
       ) : (
       <div>
         <input

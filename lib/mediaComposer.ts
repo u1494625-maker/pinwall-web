@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { convertHeicToJpeg, isHeicFile } from "@/lib/heic";
 import { MAX_IMAGE_SOURCE_BYTES, prepareImageForUpload, type ImageDiagnostics } from "@/lib/imageOptimization";
-import { ALLOWED_IMAGE_TYPES, ALLOWED_MEDIA_TYPES, ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/storage";
+import { ALLOWED_MEDIA_TYPES, ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/storage";
 import type { MediaType } from "@/types/post";
 
 /** A photo post may hold 1–10 photos. Trivially adjustable later. */
@@ -94,13 +94,6 @@ export type VideoAsset =
   | { kind: "existing"; url: string; storagePath: string }
   | { kind: "new"; file: File; previewUrl: string };
 
-/** A video post's single required cover image — same "existing"/"new" shape
- *  and revert-on-remove behavior as VideoAsset, but always an image, so it
- *  carries the same HEIC/optimization diagnostics a photo would. */
-export type CoverAsset =
-  | { kind: "existing"; url: string; storagePath: string }
-  | { kind: "new"; file: File; previewUrl: string; imageDiagnostics?: ImageDiagnostics };
-
 /**
  * A post's media "mode" is never stored — it's derived from whatever's
  * already selected, exactly like `post_type` is derived from `media` on the
@@ -137,10 +130,9 @@ export type UseMediaComposerOptions = {
    *  editor should open already reflecting per-photo mode rather than
    *  silently hiding existing per-photo pins behind a toggle that reads off. */
   initialPerPhotoLocationMode?: boolean;
-  /** Seeds a video-post edit with the server's current video/cover — omitted
-   *  entirely for create (both start null) and for a photo post. */
+  /** Seeds a video-post edit with the server's current video — omitted
+   *  entirely for create (starts null) and for a photo post. */
   initialVideo?: VideoAsset;
-  initialCover?: CoverAsset;
 };
 
 /**
@@ -159,14 +151,11 @@ export function useMediaComposer({
   initialCoords = null,
   initialPerPhotoLocationMode,
   initialVideo,
-  initialCover,
 }: UseMediaComposerOptions = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const coverInputRef = useRef<HTMLInputElement>(null);
   const mediaItemsRef = useRef<MediaComposerItem[]>([]);
   const videoRef = useRef<VideoAsset | null>(null);
-  const coverRef = useRef<CoverAsset | null>(null);
 
   const [mediaItems, setMediaItems] = useState<MediaComposerItem[]>(() => initialItems.map(seedToItem));
   const [showOnMap, setShowOnMap] = useState(initialShowOnMap);
@@ -184,9 +173,7 @@ export function useMediaComposer({
   // replacement staged earlier in the session always reverts to the SAME
   // original even after several replace/remove cycles.
   const [video, setVideo] = useState<VideoAsset | null>(initialVideo ?? null);
-  const [cover, setCover] = useState<CoverAsset | null>(initialCover ?? null);
   const initialVideoRef = useRef<VideoAsset | null>(initialVideo ?? null);
-  const initialCoverRef = useRef<CoverAsset | null>(initialCover ?? null);
 
   const mode = modeFor(mediaItems, video);
 
@@ -248,34 +235,29 @@ export function useMediaComposer({
     );
   }
 
-  // Keeps the latest media items/video/cover available to the unmount-only
-  // cleanup effect below without making that effect depend on (and re-run
-  // per) every change.
+  // Keeps the latest media items/video available to the unmount-only cleanup
+  // effect below without making that effect depend on (and re-run per) every
+  // change.
   useEffect(() => {
     mediaItemsRef.current = mediaItems;
   }, [mediaItems]);
   useEffect(() => {
     videoRef.current = video;
   }, [video]);
-  useEffect(() => {
-    coverRef.current = cover;
-  }, [cover]);
 
   // Revokes every object URL still outstanding when the composer unmounts.
-  // Only ever meaningful for "new" items/video/cover (an "existing" one's
+  // Only ever meaningful for "new" items/video (an "existing" one's
   // previewUrl/url is a real remote URL, never a blob: URL) — revoking a
   // non-blob URL is a harmless no-op regardless, but this is scoped precisely
   // on purpose. Removing an item revokes its own URL immediately (see
-  // handleRemoveMedia/handleRemoveVideo/handleRemoveCover), so by the time
-  // this runs it only ever sees URLs that weren't already revoked — no
-  // double-revoke.
+  // handleRemoveMedia/handleRemoveVideo), so by the time this runs it only
+  // ever sees URLs that weren't already revoked — no double-revoke.
   useEffect(() => {
     return () => {
       for (const item of mediaItemsRef.current) {
         if (item.kind === "new") URL.revokeObjectURL(item.previewUrl);
       }
       if (videoRef.current?.kind === "new") URL.revokeObjectURL(videoRef.current.previewUrl);
-      if (coverRef.current?.kind === "new") URL.revokeObjectURL(coverRef.current.previewUrl);
     };
   }, []);
 
@@ -552,69 +534,6 @@ export function useMediaComposer({
     });
   }
 
-  // Cover's own single-file picker — always an image, reusing the exact same
-  // HEIC-conversion + prepareImageForUpload pipeline a photo goes through in
-  // handleMediaChange above (duplicated rather than extracted into a shared
-  // helper: that loop's counter-based multi-file bookkeeping doesn't cleanly
-  // factor out for a single-file, early-return caller without risking the
-  // tested photo-array behavior).
-  async function handleCoverChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    setError(null);
-
-    const isHeicSource = isHeicFile(file);
-    const mimeRecognized = ALLOWED_IMAGE_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_TYPES)[number]);
-    if (!isHeicSource && !mimeRecognized) {
-      setError("This photo format isn't supported.");
-      return;
-    }
-
-    if (file.size > MAX_IMAGE_SOURCE_BYTES) {
-      setError(`This photo is too large. Maximum size is ${Math.round(MAX_IMAGE_SOURCE_BYTES / (1024 * 1024))} MB.`);
-      return;
-    }
-
-    let fileToUse = file;
-
-    if (isHeicSource) {
-      setIsConvertingHeic(true);
-      try {
-        fileToUse = await convertHeicToJpeg(file);
-      } catch {
-        setIsConvertingHeic(false);
-        setError("This photo couldn't be processed.");
-        return;
-      }
-      setIsConvertingHeic(false);
-    }
-
-    let imageDiagnostics: ImageDiagnostics | undefined;
-    try {
-      const prepared = await prepareImageForUpload(fileToUse, isHeicSource);
-      fileToUse = prepared.file;
-      imageDiagnostics = prepared.diagnostics;
-    } catch {
-      setError("This photo couldn't be processed.");
-      return;
-    }
-
-    const finalFile = fileToUse;
-    setCover((prev) => {
-      if (prev?.kind === "new") URL.revokeObjectURL(prev.previewUrl);
-      return { kind: "new", file: finalFile, previewUrl: URL.createObjectURL(finalFile), imageDiagnostics };
-    });
-  }
-
-  function handleRemoveCover() {
-    setCover((prev) => {
-      if (prev?.kind === "new") URL.revokeObjectURL(prev.previewUrl);
-      return initialCoverRef.current;
-    });
-  }
-
   const showAddMoreTile = mode !== "video" && mediaItems.length < MAX_PHOTO_ITEMS;
 
   return {
@@ -639,13 +558,9 @@ export function useMediaComposer({
     handleSetLocationForSelectedPhotos,
     handleClearLocationForSelectedPhotos,
     video,
-    cover,
     videoInputRef,
-    coverInputRef,
     handleVideoChange,
     handleRemoveVideo,
-    handleCoverChange,
-    handleRemoveCover,
   };
 }
 

@@ -87,7 +87,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   // Drives the submit button's label for a video post's multi-step publish —
   // null for a photo/empty post, which keeps ComposerBottomBar's plain
   // default ("Publishing…") exactly as before.
-  const [stage, setStage] = useState<"uploading-video" | "uploading-cover" | "saving" | null>(null);
+  const [stage, setStage] = useState<"uploading-video" | "saving" | null>(null);
 
   const composer = useMediaComposer({
     initialShowOnMap: initialDraft?.showOnMap,
@@ -116,13 +116,9 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     handleClearLocationForSelectedPhotos,
     setCoords,
     video,
-    cover,
     videoInputRef,
-    coverInputRef,
     handleVideoChange,
     handleRemoveVideo,
-    handleCoverChange,
-    handleRemoveCover,
   } = composer;
 
   // Auto-open the picker once on arrival, matching how the user got here from
@@ -158,8 +154,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         perPhotoLocationMode,
         existingMediaOrder: [], // create never has pre-existing server media
         knownServerMediaIds: [], // create never has pre-existing server media
-        hasUnsavedLocalMedia:
-          mediaItems.some((item) => item.kind === "new") || video?.kind === "new" || cover?.kind === "new",
+        hasUnsavedLocalMedia: mediaItems.some((item) => item.kind === "new") || video?.kind === "new",
         savedAt: Date.now(),
       });
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS);
@@ -167,7 +162,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [draftKey, isSubmitting, title, caption, tags, showOnMap, coords, perPhotoLocationMode, mediaItems, video, cover]);
+  }, [draftKey, isSubmitting, title, caption, tags, showOnMap, coords, perPhotoLocationMode, mediaItems, video]);
 
   function cancelPendingDraftSave() {
     if (draftSaveTimerRef.current) {
@@ -209,11 +204,6 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       return;
     }
 
-    if (mode === "video" && !cover) {
-      setError("Add a cover image before publishing.");
-      return;
-    }
-
     if (!perPhotoLocationMode && showOnMap && !coords) {
       setError("Choose a location on the map before publishing.");
       return;
@@ -230,12 +220,11 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       const media: NewPostMediaInput[] = [];
 
       if (mode === "video") {
-        // MediaPostEditor only ever creates — video/cover here are always a
-        // freshly selected local file, never "existing" (that only happens
-        // in EditVideoPostFields). Asserted, not just assumed, so a future
+        // MediaPostEditor only ever creates — video here is always a freshly
+        // selected local file, never "existing" (that only happens in
+        // EditVideoPostFields). Asserted, not just assumed, so a future
         // change to this invariant fails loudly instead of silently.
         if (!video || video.kind !== "new") throw new Error("Expected a newly selected video.");
-        if (!cover || cover.kind !== "new") throw new Error("Expected a newly selected cover image.");
 
         setStage("uploading-video");
         setVideoUploadProgress(0);
@@ -249,18 +238,12 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         }
         uploadedPaths.push({ path: videoPath, bucket: POST_VIDEO_BUCKET });
 
-        setStage("uploading-cover");
-        const uploadedCover = await uploadPostMedia(cover.file, user.id, draftId);
-        uploadedPaths.push({ path: uploadedCover.path, bucket: POST_IMAGE_BUCKET });
-
         media.push({
           type: "video",
           url: videoUrl,
           storagePath: videoPath,
           aspectRatio: "4/5",
           position: 0,
-          thumbnailUrl: uploadedCover.url,
-          thumbnailStoragePath: uploadedCover.path,
         });
       } else {
         // Sequential, not parallel: with a small max item count, this keeps
@@ -360,13 +343,9 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           onMoveMedia={handleMoveMedia}
           captureEnvironment={initialSource === "camera"}
           video={video}
-          cover={cover}
           videoInputRef={videoInputRef}
-          coverInputRef={coverInputRef}
           onVideoChange={handleVideoChange}
           onRemoveVideo={handleRemoveVideo}
-          onCoverChange={handleCoverChange}
-          onRemoveCover={handleRemoveCover}
           title={title}
           onTitleChange={setTitle}
           caption={caption}
@@ -391,11 +370,9 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           submittingLabel={
             stage === "uploading-video"
               ? `Uploading video… ${Math.round((videoUploadProgress ?? 0) * 100)}%`
-              : stage === "uploading-cover"
-                ? "Uploading cover…"
-                : stage === "saving"
-                  ? "Saving post…"
-                  : "Publishing…"
+              : stage === "saving"
+                ? "Saving post…"
+                : "Publishing…"
           }
         />
       </form>

@@ -339,10 +339,9 @@ export type NewPostMediaInput = {
   storagePath: string;
   aspectRatio: string | null;
   position: number;
-  /** Cover image for a video item — required by the composer before a video
-   *  post can be submitted; always omitted for images. */
+  /** Legacy cover-image fields — the composer no longer sets these for a new
+   *  video (see PostMedia's doc comment); always omitted here. */
   thumbnailUrl?: string;
-  /** Storage path for thumbnailUrl (post-image bucket) — see PostMedia. */
   thumbnailStoragePath?: string;
   /** Optional per-photo location — image items only, see PostMedia. */
   latitude?: number;

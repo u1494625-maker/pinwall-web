@@ -28,6 +28,13 @@ alter table public.post_media
 -- ============================================================================
 -- 2. Check constraint: a video row must always carry both cover fields
 -- ============================================================================
+-- SUPERSEDED — the user-uploaded video cover feature was removed after this
+-- file was first run; supabase/video_post_covers_optional.sql drops this
+-- constraint again. Left in place, unedited, as a historical record of what
+-- actually ran against the database — do not remove it from here; if you're
+-- setting up a fresh database, run this file followed by
+-- video_post_covers_optional.sql, in that order.
+--
 -- There are effectively no production video posts yet, so this is the clean
 -- point to enforce this at the database level rather than relying on
 -- app-level validation alone. Image/text rows are unaffected (thumbnail_url/
