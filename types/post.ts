@@ -12,10 +12,15 @@ export type PostMedia = {
   storagePath: string;
   aspectRatio: string | null;
   position: number;
-  /** Client-generated cover-frame JPEG for a video item — used only for
-   *  static previews (e.g. the Map marker). Undefined for images and for
-   *  video items published before this existed. Never used for playback. */
+  /** User-selected cover image for a video item — required for every video
+   *  published under the current model, used for static previews (e.g. the
+   *  Map marker). Undefined for images. Never used for playback. */
   thumbnailUrl?: string;
+  /** Storage object path for thumbnailUrl (post-image bucket) — kept
+   *  alongside the URL so a video's cover can be reliably deleted/replaced,
+   *  same reasoning as storagePath above. Undefined for images and for a
+   *  video row published before this column existed. */
+  thumbnailStoragePath?: string;
   /** Optional per-photo map location, independent of the post's own
    *  showOnMap/latitude/longitude — see lib/map/clustering.ts's
    *  buildMapItems for the precedence rule between the two. Image items

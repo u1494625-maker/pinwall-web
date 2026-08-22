@@ -18,8 +18,14 @@ import {
 import { useMediaComposer, type MediaComposerItem } from "@/lib/mediaComposer";
 import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { addPost, type NewPostMediaInput } from "@/lib/posts";
-import { deletePostMedia, uploadPostMedia, uploadVideoResumable } from "@/lib/storage";
-import { generateVideoThumbnail } from "@/lib/videoThumbnail";
+import {
+  deletePostMedia,
+  POST_IMAGE_BUCKET,
+  POST_VIDEO_BUCKET,
+  uploadPostMedia,
+  uploadVideoResumable,
+  type StorageBucket,
+} from "@/lib/storage";
 
 type MediaPostEditorProps = {
   /** How the user entered this editor — decides which file picker flavor to auto-open. */
@@ -76,9 +82,12 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Fraction 0–1 while a video is uploading via the resumable path; null the
   // rest of the time (including for a photo-only post, which never touches
-  // this at all). Surfaced through ComposerBottomBar's existing
-  // submittingLabel prop rather than adding a new progress-bar component.
+  // this at all).
   const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+  // Drives the submit button's label for a video post's multi-step publish —
+  // null for a photo/empty post, which keeps ComposerBottomBar's plain
+  // default ("Publishing…") exactly as before.
+  const [stage, setStage] = useState<"uploading-video" | "uploading-cover" | "saving" | null>(null);
 
   const composer = useMediaComposer({
     initialShowOnMap: initialDraft?.showOnMap,
@@ -106,6 +115,14 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     handleSetLocationForSelectedPhotos,
     handleClearLocationForSelectedPhotos,
     setCoords,
+    video,
+    cover,
+    videoInputRef,
+    coverInputRef,
+    handleVideoChange,
+    handleRemoveVideo,
+    handleCoverChange,
+    handleRemoveCover,
   } = composer;
 
   // Auto-open the picker once on arrival, matching how the user got here from
@@ -141,7 +158,8 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
         perPhotoLocationMode,
         existingMediaOrder: [], // create never has pre-existing server media
         knownServerMediaIds: [], // create never has pre-existing server media
-        hasUnsavedLocalMedia: mediaItems.some((item) => item.kind === "new"),
+        hasUnsavedLocalMedia:
+          mediaItems.some((item) => item.kind === "new") || video?.kind === "new" || cover?.kind === "new",
         savedAt: Date.now(),
       });
     }, DRAFT_AUTOSAVE_DEBOUNCE_MS);
@@ -149,7 +167,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [draftKey, isSubmitting, title, caption, tags, showOnMap, coords, perPhotoLocationMode, mediaItems]);
+  }, [draftKey, isSubmitting, title, caption, tags, showOnMap, coords, perPhotoLocationMode, mediaItems, video, cover]);
 
   function cancelPendingDraftSave() {
     if (draftSaveTimerRef.current) {
@@ -186,8 +204,13 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
       return;
     }
 
-    if (mediaItems.length === 0) {
+    if (mode === null) {
       setError("Choose at least one photo or video before publishing.");
+      return;
+    }
+
+    if (mode === "video" && !cover) {
+      setError("Add a cover image before publishing.");
       return;
     }
 
@@ -201,73 +224,76 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     // One draft id per publish attempt, groups this post's media under a
     // single Storage folder — see uploadPostMedia.
     const draftId = crypto.randomUUID();
-    const uploadedPaths: string[] = [];
+    const uploadedPaths: { path: string; bucket: StorageBucket }[] = [];
 
     try {
       const media: NewPostMediaInput[] = [];
 
-      // Sequential, not parallel: with a small max item count, this keeps
-      // rollback bookkeeping trivial — uploadedPaths always reflects exactly
-      // what succeeded so far the instant anything fails.
-      for (let index = 0; index < mediaItems.length; index += 1) {
-        const item = mediaItems[index];
-        // Every item here is freshly selected (kind "new") — MediaPostEditor
-        // never seeds pre-existing media, unlike EditPostForm's photo-edit path.
-        if (item.kind !== "new") continue;
-        // Images already know their real (post-optimization) dimensions from
-        // the pipeline — no need to re-decode via measureImageAspectRatio.
-        // That helper is kept only as a defensive fallback for the
-        // unexpected case imageDiagnostics is somehow missing.
-        const aspectRatio =
-          item.type === "video"
-            ? "4/5"
-            : item.imageDiagnostics
-              ? `${item.imageDiagnostics.optimizedWidth}/${item.imageDiagnostics.optimizedHeight}`
-              : await measureImageAspectRatio(item.previewUrl);
-        let url: string;
-        let path: string;
-        if (item.type === "video") {
-          setVideoUploadProgress(0);
-          try {
-            ({ url, path } = await uploadVideoResumable(item.file, user.id, draftId, {
-              onProgress: setVideoUploadProgress,
-            }));
-          } finally {
-            setVideoUploadProgress(null);
-          }
-        } else {
-          ({ url, path } = await uploadWithDiagnostics(item, user.id, draftId));
-        }
-        uploadedPaths.push(path);
+      if (mode === "video") {
+        // MediaPostEditor only ever creates — video/cover here are always a
+        // freshly selected local file, never "existing" (that only happens
+        // in EditVideoPostFields). Asserted, not just assumed, so a future
+        // change to this invariant fails loudly instead of silently.
+        if (!video || video.kind !== "new") throw new Error("Expected a newly selected video.");
+        if (!cover || cover.kind !== "new") throw new Error("Expected a newly selected cover image.");
 
-        let thumbnailUrl: string | undefined;
-        if (item.type === "video") {
-          // Best-effort only: a failure here must never block publishing the
-          // video itself — it just falls back to the existing play-glyph
-          // marker, same as any video published before thumbnails existed.
-          try {
-            const thumbnailBlob = await generateVideoThumbnail(item.file);
-            const thumbnailFile = new File([thumbnailBlob], "thumbnail.jpg", { type: "image/jpeg" });
-            const uploadedThumbnail = await uploadPostMedia(thumbnailFile, user.id, draftId);
-            uploadedPaths.push(uploadedThumbnail.path);
-            thumbnailUrl = uploadedThumbnail.url;
-          } catch (thumbnailErr) {
-            console.error("Video thumbnail generation failed (publishing without one):", thumbnailErr);
-          }
+        setStage("uploading-video");
+        setVideoUploadProgress(0);
+        let videoUrl: string, videoPath: string;
+        try {
+          ({ url: videoUrl, path: videoPath } = await uploadVideoResumable(video.file, user.id, draftId, {
+            onProgress: setVideoUploadProgress,
+          }));
+        } finally {
+          setVideoUploadProgress(null);
         }
+        uploadedPaths.push({ path: videoPath, bucket: POST_VIDEO_BUCKET });
+
+        setStage("uploading-cover");
+        const uploadedCover = await uploadPostMedia(cover.file, user.id, draftId);
+        uploadedPaths.push({ path: uploadedCover.path, bucket: POST_IMAGE_BUCKET });
 
         media.push({
-          type: item.type,
-          url,
-          storagePath: path,
-          aspectRatio,
-          position: index,
-          thumbnailUrl,
-          latitude: perPhotoLocationMode ? item.location?.lat : undefined,
-          longitude: perPhotoLocationMode ? item.location?.lng : undefined,
+          type: "video",
+          url: videoUrl,
+          storagePath: videoPath,
+          aspectRatio: "4/5",
+          position: 0,
+          thumbnailUrl: uploadedCover.url,
+          thumbnailStoragePath: uploadedCover.path,
         });
+      } else {
+        // Sequential, not parallel: with a small max item count, this keeps
+        // rollback bookkeeping trivial — uploadedPaths always reflects
+        // exactly what succeeded so far the instant anything fails.
+        for (let index = 0; index < mediaItems.length; index += 1) {
+          const item = mediaItems[index];
+          // Every item here is freshly selected (kind "new") — MediaPostEditor
+          // never seeds pre-existing media, unlike EditPostForm's photo-edit path.
+          if (item.kind !== "new") continue;
+          // Images already know their real (post-optimization) dimensions
+          // from the pipeline — no need to re-decode via
+          // measureImageAspectRatio. That helper is kept only as a defensive
+          // fallback for the unexpected case imageDiagnostics is missing.
+          const aspectRatio = item.imageDiagnostics
+            ? `${item.imageDiagnostics.optimizedWidth}/${item.imageDiagnostics.optimizedHeight}`
+            : await measureImageAspectRatio(item.previewUrl);
+          const { url, path } = await uploadWithDiagnostics(item, user.id, draftId);
+          uploadedPaths.push({ path, bucket: POST_IMAGE_BUCKET });
+
+          media.push({
+            type: item.type,
+            url,
+            storagePath: path,
+            aspectRatio,
+            position: index,
+            latitude: perPhotoLocationMode ? item.location?.lat : undefined,
+            longitude: perPhotoLocationMode ? item.location?.lng : undefined,
+          });
+        }
       }
 
+      setStage("saving");
       await addPost({
         title: title.trim(),
         caption: caption.trim(),
@@ -289,9 +315,9 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     } catch (err) {
       if (uploadedPaths.length > 0) {
         const failedCleanupPaths: string[] = [];
-        for (const path of uploadedPaths) {
+        for (const { path, bucket } of uploadedPaths) {
           try {
-            await deletePostMedia(path);
+            await deletePostMedia(path, bucket);
           } catch {
             failedCleanupPaths.push(path);
           }
@@ -301,11 +327,13 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
             "Publishing failed, and some uploaded files couldn't be cleaned up automatically. Please try again or contact support if this keeps happening.",
           );
           setIsSubmitting(false);
+          setStage(null);
           return;
         }
       }
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
       setIsSubmitting(false);
+      setStage(null);
     }
   }
 
@@ -331,6 +359,14 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           onRemoveMedia={handleRemoveMedia}
           onMoveMedia={handleMoveMedia}
           captureEnvironment={initialSource === "camera"}
+          video={video}
+          cover={cover}
+          videoInputRef={videoInputRef}
+          coverInputRef={coverInputRef}
+          onVideoChange={handleVideoChange}
+          onRemoveVideo={handleRemoveVideo}
+          onCoverChange={handleCoverChange}
+          onRemoveCover={handleRemoveCover}
           title={title}
           onTitleChange={setTitle}
           caption={caption}
@@ -353,7 +389,13 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
           isSubmitting={isSubmitting}
           error={error}
           submittingLabel={
-            videoUploadProgress != null ? `Uploading video… ${Math.round(videoUploadProgress * 100)}%` : "Publishing…"
+            stage === "uploading-video"
+              ? `Uploading video… ${Math.round((videoUploadProgress ?? 0) * 100)}%`
+              : stage === "uploading-cover"
+                ? "Uploading cover…"
+                : stage === "saving"
+                  ? "Saving post…"
+                  : "Publishing…"
           }
         />
       </form>

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { deletePost } from "@/lib/posts";
-import { deletePostMedia } from "@/lib/storage";
+import { deletePostMedia, POST_IMAGE_BUCKET, POST_VIDEO_BUCKET } from "@/lib/storage";
 import type { Post } from "@/types/post";
 
 type PostManageSheetProps = {
@@ -74,7 +74,12 @@ export default function PostManageSheet({ open, post, onClose, onDeleted }: Post
     try {
       if (post.media.length > 0 && !mediaDeletedRef.current) {
         for (const item of post.media) {
-          await deletePostMedia(item.storagePath);
+          await deletePostMedia(item.storagePath, item.type === "video" ? POST_VIDEO_BUCKET : POST_IMAGE_BUCKET);
+          // A video's cover lives in post-image as its own separate object,
+          // tracked only via thumbnailStoragePath — never deleted otherwise.
+          if (item.thumbnailStoragePath) {
+            await deletePostMedia(item.thumbnailStoragePath, POST_IMAGE_BUCKET);
+          }
         }
         mediaDeletedRef.current = true;
       }

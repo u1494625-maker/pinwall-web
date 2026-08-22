@@ -2,12 +2,19 @@
 
 import type { ChangeEvent, RefObject } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
-import { VIDEO_EXTENSIONS, type MediaComposerItem, type MediaMode } from "@/lib/mediaComposer";
+import {
+  VIDEO_EXTENSIONS,
+  type CoverAsset,
+  type MediaComposerItem,
+  type MediaMode,
+  type VideoAsset,
+} from "@/lib/mediaComposer";
 import { ALLOWED_MEDIA_TYPES } from "@/lib/storage";
 import PerPhotoLocationFields from "./PerPhotoLocationFields";
 import PostLocationFields from "./PostLocationFields";
 import TagChipInput from "./TagChipInput";
 import TitleField from "./TitleField";
+import VideoCoverFields from "./VideoCoverFields";
 
 type MediaComposerFieldsProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -21,6 +28,18 @@ type MediaComposerFieldsProps = {
   /** Auto-opens the camera capture UI instead of the plain file picker —
    *  only meaningful for the create flow's "Camera" entry point. */
   captureEnvironment?: boolean;
+
+  /** Video-post-only slots — always present (possibly null/no-op) even for a
+   *  photo post, since this component's props are shared regardless of mode;
+   *  only rendered when mode === "video" (see VideoCoverFields). */
+  video: VideoAsset | null;
+  cover: CoverAsset | null;
+  videoInputRef: RefObject<HTMLInputElement | null>;
+  coverInputRef: RefObject<HTMLInputElement | null>;
+  onVideoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRemoveVideo: () => void;
+  onCoverChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRemoveCover: () => void;
 
   title: string;
   onTitleChange: (value: string) => void;
@@ -60,6 +79,14 @@ export default function MediaComposerFields({
   onRemoveMedia,
   onMoveMedia,
   captureEnvironment = false,
+  video,
+  cover,
+  videoInputRef,
+  coverInputRef,
+  onVideoChange,
+  onRemoveVideo,
+  onCoverChange,
+  onRemoveCover,
   title,
   onTitleChange,
   caption,
@@ -79,6 +106,19 @@ export default function MediaComposerFields({
 }: MediaComposerFieldsProps) {
   return (
     <>
+      {mode === "video" ? (
+        <VideoCoverFields
+          video={video}
+          cover={cover}
+          videoInputRef={videoInputRef}
+          coverInputRef={coverInputRef}
+          onVideoChange={onVideoChange}
+          onRemoveVideo={onRemoveVideo}
+          onCoverChange={onCoverChange}
+          onRemoveCover={onRemoveCover}
+          isConvertingHeic={isConvertingHeic}
+        />
+      ) : (
       <div>
         <input
           ref={fileInputRef}
@@ -120,11 +160,7 @@ export default function MediaComposerFields({
               {mediaItems.map((item, index) => (
                 <div key={item.key} className="relative size-24 shrink-0">
                   <div className="size-24 overflow-hidden rounded-2xl">
-                    {item.type === "video" ? (
-                      <video src={item.previewUrl} muted playsInline className="size-full object-cover" />
-                    ) : (
-                      <DemoPhoto src={item.previewUrl} alt={`Media ${index + 1}`} className="size-full" />
-                    )}
+                    <DemoPhoto src={item.previewUrl} alt={`Media ${index + 1}`} className="size-full" />
                   </div>
 
                   {index === 0 ? (
@@ -185,13 +221,10 @@ export default function MediaComposerFields({
                 )
               ) : null}
             </div>
-
-            {mode === "video" ? (
-              <p className="mt-1.5 text-[11px] text-stone-400">Remove the current video before adding photos.</p>
-            ) : null}
           </>
         )}
       </div>
+      )}
 
       <TitleField value={title} onChange={onTitleChange} />
 

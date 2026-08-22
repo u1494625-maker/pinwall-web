@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { withTimeout } from "@/lib/asyncUtils";
 import { FALLBACK_DISPLAY_NAME, getProfilesByUserIds } from "@/lib/profiles";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import type { TextTemplateId } from "@/lib/textTemplates";
@@ -15,6 +16,7 @@ type PostMediaRow = {
   aspect_ratio: string | null;
   position: number;
   thumbnail_url: string | null;
+  thumbnail_storage_path: string | null;
   latitude: number | null;
   longitude: number | null;
   location_name: string | null;
@@ -50,6 +52,7 @@ function rowToPostMedia(row: PostMediaRow): PostMedia {
     aspectRatio: row.aspect_ratio,
     position: row.position,
     thumbnailUrl: row.thumbnail_url ?? undefined,
+    thumbnailStoragePath: row.thumbnail_storage_path ?? undefined,
     latitude: row.latitude ?? undefined,
     longitude: row.longitude ?? undefined,
     locationName: row.location_name ?? undefined,
@@ -276,7 +279,7 @@ export async function getPostById(id: number): Promise<Post | undefined> {
 }
 
 const POST_MEDIA_COLUMNS =
-  "id, media_type, url, storage_path, aspect_ratio, position, thumbnail_url, latitude, longitude, location_name";
+  "id, media_type, url, storage_path, aspect_ratio, position, thumbnail_url, thumbnail_storage_path, latitude, longitude, location_name";
 
 /**
  * Admin-only, explicitly moderation-triggered fetch of one post regardless
@@ -336,9 +339,11 @@ export type NewPostMediaInput = {
   storagePath: string;
   aspectRatio: string | null;
   position: number;
-  /** Cover-frame thumbnail for a video item — omitted for images and for a
-   *  video whose thumbnail generation failed (see MediaPostEditor). */
+  /** Cover image for a video item — required by the composer before a video
+   *  post can be submitted; always omitted for images. */
   thumbnailUrl?: string;
+  /** Storage path for thumbnailUrl (post-image bucket) — see PostMedia. */
+  thumbnailStoragePath?: string;
   /** Optional per-photo location — image items only, see PostMedia. */
   latitude?: number;
   longitude?: number;
@@ -363,6 +368,15 @@ export type NewPostInput = {
   textTemplate?: TextTemplateId;
 };
 
+// A stalled connection on a write RPC (all uploads already succeeded, just
+// this final call never gets a response) would otherwise leave a submit
+// button reading "Publishing…"/"Saving…" forever — the same class of hang
+// getAllPosts() already guards against on the read side (see
+// POSTS_FETCH_TIMEOUT_MS above). 20s is generous for a small jsonb payload;
+// this never wraps uploadVideoResumable's own (potentially much longer, but
+// actively progressing) TUS transfer.
+const RPC_TIMEOUT_MS = 20000;
+
 /**
  * Creates a post and its media rows in one atomic step via the
  * create_post_with_media RPC (supabase/post_media.sql) — a plain client-side
@@ -377,32 +391,37 @@ export async function addPost(input: NewPostInput): Promise<number> {
     );
   }
 
-  const { data, error } = await supabase.rpc("create_post_with_media", {
-    post_input: {
-      title: input.title,
-      caption: input.caption,
-      tags: input.tags,
-      rating: input.rating,
-      ratingCount: input.ratingCount,
-      showOnMap: input.showOnMap,
-      latitude: input.latitude ?? null,
-      longitude: input.longitude ?? null,
-      locationName: input.locationName ?? null,
-      userId: input.userId ?? null,
-      textTemplate: input.textTemplate ?? null,
-    },
-    media_input: input.media.map((item) => ({
-      type: item.type,
-      url: item.url,
-      storagePath: item.storagePath,
-      aspectRatio: item.aspectRatio,
-      position: item.position,
-      thumbnailUrl: item.thumbnailUrl ?? null,
-      latitude: item.latitude ?? null,
-      longitude: item.longitude ?? null,
-      locationName: item.locationName ?? null,
-    })),
-  });
+  const { data, error } = await withTimeout(
+    supabase.rpc("create_post_with_media", {
+      post_input: {
+        title: input.title,
+        caption: input.caption,
+        tags: input.tags,
+        rating: input.rating,
+        ratingCount: input.ratingCount,
+        showOnMap: input.showOnMap,
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
+        locationName: input.locationName ?? null,
+        userId: input.userId ?? null,
+        textTemplate: input.textTemplate ?? null,
+      },
+      media_input: input.media.map((item) => ({
+        type: item.type,
+        url: item.url,
+        storagePath: item.storagePath,
+        aspectRatio: item.aspectRatio,
+        position: item.position,
+        thumbnailUrl: item.thumbnailUrl ?? null,
+        thumbnailStoragePath: item.thumbnailStoragePath ?? null,
+        latitude: item.latitude ?? null,
+        longitude: item.longitude ?? null,
+        locationName: item.locationName ?? null,
+      })),
+    }),
+    RPC_TIMEOUT_MS,
+    "Publishing timed out. Check your connection and try again.",
+  );
 
   if (error || data == null) {
     throw new Error(error?.message ?? "Failed to create post.");
@@ -449,18 +468,22 @@ export async function updatePost(id: number, fields: PostEditableFields): Promis
     );
   }
 
-  const { data, error } = await supabase
-    .from("posts")
-    .update({
-      title: fields.title,
-      caption: fields.caption,
-      tags: fields.tags,
-      show_on_map: fields.showOnMap,
-      latitude: fields.latitude,
-      longitude: fields.longitude,
-    })
-    .eq("id", id)
-    .select("id");
+  const { data, error } = await withTimeout(
+    supabase
+      .from("posts")
+      .update({
+        title: fields.title,
+        caption: fields.caption,
+        tags: fields.tags,
+        show_on_map: fields.showOnMap,
+        latitude: fields.latitude,
+        longitude: fields.longitude,
+      })
+      .eq("id", id)
+      .select("id"),
+    RPC_TIMEOUT_MS,
+    "Saving timed out. Check your connection and try again.",
+  );
 
   if (error) {
     throw new Error(error.message);
@@ -485,6 +508,7 @@ export type EditPostMediaInput = {
   aspectRatio: string | null;
   position: number;
   thumbnailUrl?: string;
+  thumbnailStoragePath?: string;
   latitude?: number;
   longitude?: number;
   locationName?: string;
@@ -521,30 +545,35 @@ export async function updatePostWithMedia(
     );
   }
 
-  const { error } = await supabase.rpc("update_post_with_media", {
-    p_post_id: postId,
-    post_input: {
-      title: fields.title,
-      caption: fields.caption,
-      tags: fields.tags,
-      showOnMap: fields.showOnMap,
-      latitude: fields.latitude,
-      longitude: fields.longitude,
-      locationName: fields.locationName,
-    },
-    media_input: media.map((item) => ({
-      id: item.id ?? null,
-      type: item.type,
-      url: item.url,
-      storagePath: item.storagePath,
-      aspectRatio: item.aspectRatio,
-      position: item.position,
-      thumbnailUrl: item.thumbnailUrl ?? null,
-      latitude: item.latitude ?? null,
-      longitude: item.longitude ?? null,
-      locationName: item.locationName ?? null,
-    })),
-  });
+  const { error } = await withTimeout(
+    supabase.rpc("update_post_with_media", {
+      p_post_id: postId,
+      post_input: {
+        title: fields.title,
+        caption: fields.caption,
+        tags: fields.tags,
+        showOnMap: fields.showOnMap,
+        latitude: fields.latitude,
+        longitude: fields.longitude,
+        locationName: fields.locationName,
+      },
+      media_input: media.map((item) => ({
+        id: item.id ?? null,
+        type: item.type,
+        url: item.url,
+        storagePath: item.storagePath,
+        aspectRatio: item.aspectRatio,
+        position: item.position,
+        thumbnailUrl: item.thumbnailUrl ?? null,
+        thumbnailStoragePath: item.thumbnailStoragePath ?? null,
+        latitude: item.latitude ?? null,
+        longitude: item.longitude ?? null,
+        locationName: item.locationName ?? null,
+      })),
+    }),
+    RPC_TIMEOUT_MS,
+    "Saving timed out. Check your connection and try again.",
+  );
 
   if (error) {
     throw new Error(error.message);
@@ -571,22 +600,6 @@ let cachedAllPosts: Post[] | null = null;
 // chance (matching what already happens by accident whenever some other
 // page's own successful fetch has warmed cachedAllPosts first) — never more.
 const POSTS_FETCH_TIMEOUT_MS = 8000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Timed out loading posts")), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
 
 /**
  * Fetches every post on mount, exposing loading state alongside the data so

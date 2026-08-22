@@ -1,3 +1,4 @@
+import { withTimeout } from "@/lib/asyncUtils";
 import { supabase } from "@/lib/supabase/client";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -24,7 +25,20 @@ export const ALLOWED_MEDIA_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYP
 // replace what used to be a single MAX_IMAGE_BYTES here.
 export const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300MB
 
-const STORAGE_BUCKET = "post-image";
+/** Photos and video cover images. */
+export const POST_IMAGE_BUCKET = "post-image";
+/** Video files only — never covers, never photos. See supabase/post_video_bucket.sql. */
+export const POST_VIDEO_BUCKET = "post-video";
+export type StorageBucket = typeof POST_IMAGE_BUCKET | typeof POST_VIDEO_BUCKET;
+
+// A single-shot upload (a photo, or a video's cover image) should be quick —
+// if the underlying fetch stalls with no response at all, this guarantees the
+// caller sees a clear error instead of hanging on "Uploading…" forever. Not
+// applied to uploadVideoResumable: a large video's TUS transfer can
+// legitimately take a long time while still making real progress, so an
+// outer timeout there would abort a slow-but-healthy upload — that path
+// already has its own robust retry/resume logic instead (see below).
+const SINGLE_SHOT_UPLOAD_TIMEOUT_MS = 30000;
 
 function sanitizeFileName(fileName: string): string {
   return fileName.trim().toLowerCase().replace(/[^a-z0-9.]+/g, "-");
@@ -47,9 +61,11 @@ export type UploadedMedia = {
 export async function uploadPostMedia(file: File, userId: string, draftId: string): Promise<UploadedMedia> {
   const path = `${userId}/${draftId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
-  const { error: uploadError } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(path, file, { contentType: file.type });
+  const { error: uploadError } = await withTimeout(
+    supabase.storage.from(POST_IMAGE_BUCKET).upload(path, file, { contentType: file.type }),
+    SINGLE_SHOT_UPLOAD_TIMEOUT_MS,
+    `"${file.name}" couldn't be uploaded — the connection stalled. Check your connection and try again.`,
+  );
 
   if (uploadError) {
     const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
@@ -66,7 +82,7 @@ export async function uploadPostMedia(file: File, userId: string, draftId: strin
     throw new Error(`"${file.name}" (${sizeMb}MB) couldn't be uploaded — ${reason}`);
   }
 
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(POST_IMAGE_BUCKET).getPublicUrl(path);
 
   if (!data?.publicUrl) {
     throw new Error("Failed to get a public URL for the uploaded file.");
@@ -86,9 +102,11 @@ export type ResumableUploadCallbacks = {
 
 /**
  * Uploads a video via Supabase Storage's resumable (TUS) endpoint instead of
- * uploadPostMedia's single-shot PUT — same bucket, same path scheme, same
- * RLS ("Users can upload into their own post-image folder" is bucket+path
- * scoped, not upload-method scoped — confirmed live against this project
+ * uploadPostMedia's single-shot PUT — into the dedicated `post-video` bucket
+ * (never post-image), same path scheme, same ownership-scoped RLS shape
+ * (see supabase/post_video_bucket.sql; "Users can upload into their own
+ * post-video folder" is bucket+path scoped, not upload-method scoped —
+ * confirmed live against this project, for the equivalent post-image policy,
  * before writing this function: an unauthenticated request is rejected at
  * the JWT stage, and a request bearing only the anon key correctly fails
  * RLS with "new row violates row-level security policy," exactly like the
@@ -140,7 +158,7 @@ export async function uploadVideoResumable(
       retryDelays: [0, 3000, 5000, 10000, 20000],
       chunkSize: 6 * 1024 * 1024,
       metadata: {
-        bucketName: STORAGE_BUCKET,
+        bucketName: POST_VIDEO_BUCKET,
         objectName: path,
         contentType: file.type || "video/mp4",
         cacheControl: "3600",
@@ -190,7 +208,7 @@ export async function uploadVideoResumable(
     upload.start();
   });
 
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(POST_VIDEO_BUCKET).getPublicUrl(path);
   if (!data?.publicUrl) {
     throw new Error("Failed to get a public URL for the uploaded file.");
   }
@@ -198,9 +216,16 @@ export async function uploadVideoResumable(
   return { url: data.publicUrl, path };
 }
 
-/** Best-effort cleanup for an upload left orphaned by a failed database insert. */
-export async function deletePostMedia(path: string): Promise<void> {
-  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([path]);
+/**
+ * Best-effort cleanup for an upload left orphaned by a failed database
+ * insert, or removal of a superseded/deleted file. `bucket` is required
+ * (never defaulted) — a photo/cover path belongs in POST_IMAGE_BUCKET, a
+ * video file's path belongs in POST_VIDEO_BUCKET, and getting this wrong
+ * either silently fails to delete the real file or, worse, could target the
+ * wrong object if the same relative path ever existed in both buckets.
+ */
+export async function deletePostMedia(path: string, bucket: StorageBucket): Promise<void> {
+  const { error } = await supabase.storage.from(bucket).remove([path]);
 
   if (error) {
     throw new Error(`Failed to remove uploaded file: ${error.message}`);
@@ -222,14 +247,14 @@ export async function uploadProfileImage(file: Blob, userId: string, kind: "avat
   const path = `${userId}/profile/${kind}.jpg`;
 
   const { error: uploadError } = await supabase.storage
-    .from(STORAGE_BUCKET)
+    .from(POST_IMAGE_BUCKET)
     .upload(path, file, { contentType: "image/jpeg", upsert: true });
 
   if (uploadError) {
     throw new Error(`Couldn't upload your ${kind} image — ${uploadError.message}.`);
   }
 
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(POST_IMAGE_BUCKET).getPublicUrl(path);
 
   if (!data?.publicUrl) {
     throw new Error(`Failed to get a public URL for the uploaded ${kind} image.`);
