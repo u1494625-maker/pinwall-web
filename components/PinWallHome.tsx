@@ -8,6 +8,7 @@ import ExploreRefreshButton from "./ExploreRefreshButton";
 import MasonryFeed, { FeedSkeleton } from "./MasonryFeed";
 import TopBar from "./TopBar";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { saveHomeRoute } from "@/lib/homeRoute";
 import { useFollowedUserIds } from "@/lib/interactions";
 import { filterPostsInBounds, useSavedMapViewport } from "@/lib/map/viewport";
 import { getPostsByUserIds, useAllPostsState } from "@/lib/posts";
@@ -118,6 +119,16 @@ export default function PinWallHome() {
     refreshing: exploreRefreshing,
     refresh: refreshExplore,
   } = useExploreFeed(posts, postsLoading);
+
+  // This IS the root of the Home tab's own navigation stack — mounting here
+  // means the user has genuinely returned to Explore (as opposed to just
+  // switching to another tab, e.g. Map, with a Post Detail still open
+  // underneath). Recording "/" here is what keeps BottomNav's remembered
+  // Home route from going stale after a real Back navigation — see
+  // lib/homeRoute.ts's own doc comment.
+  useEffect(() => {
+    saveHomeRoute("/");
+  }, []);
 
   function handleSelectTab(tab: string) {
     if (isValidHomeTab(tab)) {

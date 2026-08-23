@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import AddPostActionSheet, { type AddPostChoice } from "./add/AddPostActionSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { readHomeRoute } from "@/lib/homeRoute";
 import {
   getCurrentlyOpenConversationId,
   hasNewMessagesSinceLastOpen,
@@ -58,6 +59,36 @@ export default function BottomNav() {
   const isHydrated = useSyncExternalStore(subscribeNever, getIsHydrated, getIsHydratedServerSnapshot);
   const hasUnseenMessages = useHasUnseenMessages();
   const hasUnseenNotifications = useHasUnseenNotifications();
+
+  // Set only by the Home button's onClick below, in the one case a plain
+  // replace can't handle: restoring a Post Detail that was reached from Map
+  // via "View Map" (a real push). The entry directly below Map is already
+  // that exact Post Detail — but missing whatever photo was selected, since
+  // that only ever lived in React state, never the URL, and a fresh remount
+  // loses it. A `replace()` can only ever rewrite the CURRENT top entry, so
+  // reaching that lower entry's content requires first popping Map off with
+  // a real `back()`, then, once we've actually landed on it (detected here
+  // by pathname), `replace()`-ing it with the exact remembered URL. Doing
+  // only a replace (no back) leaves the original, mediaId-less Post Detail
+  // entry sitting between the restored one and Explore — back would need
+  // two presses to reach Explore instead of one. Doing only a back (no
+  // replace) reaches the right post, but on whichever photo it originally
+  // opened on, not the one the user had actually selected.
+  const pendingHomeReplaceRef = useRef<{ target: string; expiresAt: number } | null>(null);
+
+  useEffect(() => {
+    const pending = pendingHomeReplaceRef.current;
+    if (!pending) return;
+    if (Date.now() > pending.expiresAt) {
+      pendingHomeReplaceRef.current = null;
+      return;
+    }
+    const targetBasePath = pending.target.split("?")[0];
+    if (pathname === targetBasePath) {
+      pendingHomeReplaceRef.current = null;
+      router.replace(pending.target, { scroll: false });
+    }
+  }, [pathname, router]);
 
   // Deliberately runs before the pathname-based early return below (hooks
   // must always run in the same order) — this component stays mounted on
@@ -148,6 +179,7 @@ export default function BottomNav() {
           const isActive = pathname === item.href;
           const isAddButton = item.href === "/add";
           const isMessagesButton = item.href === "/messages";
+          const isHomeButton = item.href === "/";
 
           const content = isAddButton ? (
             <span
@@ -194,17 +226,54 @@ export default function BottomNav() {
             );
           }
 
+          // Home is a button, not a plain Link — it must land on whichever
+          // URL is currently remembered as "the Home tab's own state" (see
+          // lib/homeRoute.ts), not unconditionally "/", and it must REPLACE
+          // the current history entry rather than push a new one. Replacing
+          // is what makes switching tabs behave like a native app: it
+          // collapses whatever tab you're leaving (e.g. Map) out of the back
+          // stack instead of stacking on top of it, so a restored Post
+          // Detail's own Back button goes straight to the Explore feed
+          // underneath it, not back through Map. scroll:false for the same
+          // reason the old Link below it needed one — Next's default
+          // navigate-time scroll would otherwise fight PinWallHome's own
+          // synchronous scroll-restore effect when landing back on "/".
+          //
+          // From Map specifically, a plain replace isn't enough: the entry
+          // directly below Map is already the right Post Detail (pushed by
+          // "View Map"), so replacing Map alone would leave that original,
+          // mediaId-less entry sitting between the restored page and Explore
+          // — Back would need two presses to reach Explore instead of one.
+          // back() first (popping Map, landing on that real entry), then a
+          // deferred replace once we've actually arrived (see the effect
+          // above), reaches the exact same end state in one press.
+          if (isHomeButton) {
+            return (
+              <button
+                key={item.href}
+                type="button"
+                aria-label="Home"
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => {
+                  const target = readHomeRoute();
+                  if (pathname === "/map" && target.startsWith("/post/")) {
+                    pendingHomeReplaceRef.current = { target, expiresAt: Date.now() + 3000 };
+                    router.back();
+                    return;
+                  }
+                  router.replace(target, { scroll: false });
+                }}
+                className={sharedClassName}
+              >
+                {content}
+              </button>
+            );
+          }
+
           return (
             <Link
               key={item.href}
               href={item.href}
-              // Home restores its own last scroll position (see
-              // PinWallHome's useIsomorphicLayoutEffect) — Next's default
-              // Link behavior scrolls the destination page's root into view
-              // whenever it isn't already visible, which fires in a parent
-              // component's componentDidMount after that effect and would
-              // silently overwrite it back to the top.
-              scroll={item.href === "/" ? false : undefined}
               aria-label={isAddButton ? "Add" : undefined}
               aria-current={isActive ? "page" : undefined}
               className={sharedClassName}

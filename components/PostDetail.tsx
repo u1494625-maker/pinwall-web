@@ -11,6 +11,7 @@ import ReportModal from "@/components/post/ReportModal";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
+import { saveHomeRoute } from "@/lib/homeRoute";
 import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
@@ -272,6 +273,13 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
   // one single source of truth for "which photo is active" (see
   // PostMediaGallery's onActiveMediaChange).
   const [activeMediaOverride, setActiveMediaOverride] = useState<PostMedia | null>(null);
+  // Computed here (rather than after the loading/not-found early returns
+  // below, where it conceptually belongs) only so the home-route-recording
+  // effect right below can depend on it — hooks can't follow a conditional
+  // return. Safe even before `post` resolves: resolveInitialMedia already
+  // requires a real Post, so this stays null for exactly as long as `post`
+  // itself is undefined/loading.
+  const activeMedia = post ? (activeMediaOverride ?? resolveInitialMedia(post, initialMediaId)) : null;
   const [manageSheetOpen, setManageSheetOpen] = useState(false);
   // Bumped only when opening, so PostManageSheet remounts with fresh internal state each
   // time — it stays mounted (same key) through its own close animation when closing.
@@ -317,6 +325,18 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
     };
   }, [post?.id]);
 
+  // Remembers this exact Post Detail view — post + selected photo, for a
+  // multi-photo post — as "the current Home-tab route" (see
+  // lib/homeRoute.ts), so BottomNav's Home tab can restore it after a detour
+  // to Map or another tab instead of resetting to the Explore feed. Kept
+  // live in sync as the user swipes to a different photo (activeMedia
+  // changes), not just at mount, so this always matches whichever photo is
+  // actually on screen — the same photo "View Map" itself would target.
+  useEffect(() => {
+    if (!post) return;
+    saveHomeRoute(`/post/${post.id}${activeMedia ? `?mediaId=${activeMedia.id}` : ""}`);
+  }, [post, activeMedia]);
+
   if (loading) {
     return <PostDetailSkeleton />;
   }
@@ -347,7 +367,6 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
   }
 
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
-  const activeMedia = activeMediaOverride ?? resolveInitialMedia(post, initialMediaId);
   // A post "uses per-photo locations" the moment ANY of its media has its own
   // location — derived from data, no stored flag needed (see
   // lib/map/clustering.ts's buildMapItems for the same rule applied on Map).
@@ -551,6 +570,18 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         </div>
       ) : (
         <PostMediaGallery
+          // PostMediaGallery's inner gallery deliberately seeds its selected
+          // photo from initialMediaId ONCE at mount and never reacts to it
+          // changing later (see its own doc comment) — normally correct, so
+          // an unrelated re-render never yanks the photo the user is
+          // actively looking at out from under them. BottomNav's Home tab
+          // relies on exactly the opposite for one specific case: restoring
+          // Post Detail from Map via a same-pathname router.replace() that
+          // only updates the ?mediaId= query, with no route-level remount of
+          // its own. Keying on it here forces a real remount — a fresh
+          // "seed once" — precisely when, and only when, mediaId actually
+          // changes; every other prop/state on this page is untouched.
+          key={`${post.id}-${initialMediaId ?? "default"}`}
           media={post.media}
           title={getDisplayTitle(post)}
           initialMediaId={initialMediaId}
