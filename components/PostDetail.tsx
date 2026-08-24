@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
+import LinkifiedText from "@/components/LinkifiedText";
 import PostMediaGallery from "@/components/PostMediaGallery";
 import CommentThread from "@/components/post/CommentThread";
 import PostManageSheet from "@/components/post/PostManageSheet";
@@ -609,7 +610,7 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
         <p
           className={`whitespace-pre-wrap text-stone-600 ${post.textTemplate ? "mt-4" : "mt-3"} ${post.media.length === 0 ? "text-base leading-8" : "text-sm leading-6"}`}
         >
-          {post.caption}
+          <LinkifiedText text={post.caption} />
         </p>
 
         {post.tags.length > 0 ? (
