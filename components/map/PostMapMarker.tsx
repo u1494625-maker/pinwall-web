@@ -1,5 +1,6 @@
 import DemoPhoto from "@/components/DemoPhoto";
 import TextPostVisual from "@/components/post/TextPostVisual";
+import VideoFirstFramePreview from "@/components/VideoFirstFramePreview";
 import type { TextTemplateId } from "@/lib/textTemplates";
 import type { PostMedia } from "@/types/post";
 
@@ -24,11 +25,15 @@ type PostMapMarkerProps = {
 
 /**
  * Rendered to a static HTML string (via renderToStaticMarkup) and mounted as a
- * Leaflet divIcon, so this must stay presentational only — no hooks, no handlers,
- * and no live <video> (a map pin can't sensibly host a playing video element).
- * `highlighted`'s pulse relies on the plain CSS `animate-ping` utility, which
- * still works in static markup since no JS/React is involved in the animation.
- * TextPostVisual is equally hook-free, so the same mechanism covers it.
+ * Leaflet divIcon, so this must stay presentational only — no hooks, no
+ * handlers. `highlighted`'s pulse relies on the plain CSS `animate-ping`
+ * utility, which still works in static markup since no JS/React is involved
+ * in the animation. TextPostVisual and VideoFirstFramePreview are equally
+ * hook-free, so the same mechanism covers them — a muted, non-autoplaying
+ * <video> behaves identically whether React mounted it or Leaflet injected
+ * its markup via innerHTML, since `muted` reflects straight from parsed
+ * HTML into the real DOM property (see VideoFirstFramePreview's own doc
+ * comment).
  */
 export default function PostMapMarker({ cover, title, highlighted = false, textTemplate }: PostMapMarkerProps) {
   const isTemplatedText = Boolean(textTemplate);
@@ -46,15 +51,13 @@ export default function PostMapMarker({ cover, title, highlighted = false, textT
         >
           {cover?.type === "image" ? (
             <DemoPhoto src={cover.url} alt={title} className="aspect-square w-full" />
-          ) : cover?.type === "video" && cover.thumbnailUrl ? (
-            <div className="relative aspect-square w-full">
-              <DemoPhoto src={cover.thumbnailUrl} alt={title} className="size-full" />
+          ) : cover?.type === "video" ? (
+            <div className="relative aspect-square w-full bg-stone-900">
+              <VideoFirstFramePreview src={cover.url} className="size-full object-cover" />
               <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
                 <span className="grid size-6 place-items-center rounded-full bg-white/90 text-xs text-stone-900">▶</span>
               </div>
             </div>
-          ) : cover?.type === "video" ? (
-            <div className="grid aspect-square w-full place-items-center bg-stone-800 text-base text-white">▶</div>
           ) : textTemplate ? (
             <TextPostVisual template={textTemplate} text={title} size="map" />
           ) : (
