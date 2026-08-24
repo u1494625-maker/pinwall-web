@@ -218,7 +218,7 @@ export default function PinWallHome() {
         followedLoading || followingPostsLoading ? (
           <FeedSkeleton />
         ) : followingPosts.length > 0 ? (
-          <MasonryFeed posts={followingPosts} />
+          <MasonryFeed posts={followingPosts} homeOriginated />
         ) : (
           <div className="px-6 py-20 text-center">
             <p className="text-sm text-stone-500">Posts from people you follow will appear here.</p>
@@ -235,7 +235,7 @@ export default function PinWallHome() {
                   Change area ›
                 </Link>
               </div>
-              <MasonryFeed posts={mapsFeedPosts} />
+              <MasonryFeed posts={mapsFeedPosts} homeOriginated />
               <p className="px-6 pb-10 pt-6 text-center text-xs text-stone-400">
                 That&apos;s all the posts in your selected area.
               </p>
@@ -263,7 +263,7 @@ export default function PinWallHome() {
       ) : exploreLoading ? (
         <FeedSkeleton />
       ) : (
-        <MasonryFeed posts={exploreFeedPosts} />
+        <MasonryFeed posts={exploreFeedPosts} homeOriginated />
       )}
     </main>
   );

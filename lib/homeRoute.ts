@@ -10,11 +10,13 @@ const HOME_ROUTE_KEY = "pinwall_home_route";
  * each tab's own stack independent — same sessionStorage idiom as
  * lib/map/viewport.ts's saved viewport, PinWallHome's saved tab/scroll.
  *
- * Whichever Home-stack page is currently mounted keeps overwriting this with
- * its own URL, so it never goes stale: once the user genuinely returns to
- * Explore (by pressing Back, not just switching tabs), PinWallHome's own
- * mount effect resets it back to "/", so a later Home<->Map switch with no
- * post involved correctly lands on Explore instead of a stale old post.
+ * PinWallHome's own mount effect keeps overwriting this with "/", and a Post
+ * Detail reached via one of Home's own feed tabs (Explore/Following/Maps —
+ * see PostCard.tsx's homeOriginated prop) keeps overwriting it with its own
+ * URL, so it never goes stale. A Post Detail reached from anywhere else (Me,
+ * a profile, Map, Search, a tag) deliberately does NOT write here, so it can
+ * never overwrite Home's saved state — see PostDetail.tsx's isHomeOriginated
+ * gate.
  */
 export function saveHomeRoute(pathAndSearch: string) {
   try {

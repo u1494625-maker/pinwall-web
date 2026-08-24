@@ -1,6 +1,6 @@
 import PostDetail from "@/components/PostDetail";
 
-type SearchParams = { mediaId?: string | string[]; moderate?: string | string[] };
+type SearchParams = { mediaId?: string | string[]; moderate?: string | string[]; from?: string | string[] };
 
 function parseMediaId(raw: string | string[] | undefined): number | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -18,6 +18,16 @@ function parseIsModerationView(raw: string | string[] | undefined): boolean {
   return value === "1";
 }
 
+// ?from=home is attached only by PostCard links rendered inside Home/Explore's
+// own feed tabs (see PostCard.tsx) — the ONLY thing that lets PostDetail treat
+// this view as eligible to become the restorable "Home" route. Every other
+// origin (Me, Profile, Map, Search, Tag, Messages) omits it, so opening a post
+// from there never overwrites Home's saved state. See lib/homeRoute.ts.
+function parseIsHomeOriginated(raw: string | string[] | undefined): boolean {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === "home";
+}
+
 export default async function Page({
   params,
   searchParams,
@@ -32,6 +42,7 @@ export default async function Page({
       postId={Number(id)}
       initialMediaId={parseMediaId(resolvedSearchParams.mediaId)}
       isModerationView={parseIsModerationView(resolvedSearchParams.moderate)}
+      isHomeOriginated={parseIsHomeOriginated(resolvedSearchParams.from)}
     />
   );
 }

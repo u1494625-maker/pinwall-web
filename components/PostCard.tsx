@@ -72,6 +72,13 @@ function PostCardMedia({ post }: { post: Post }) {
 
 type PostCardProps = {
   post: Post;
+  /** True only for cards rendered inside Home/Explore's own feed tabs
+   *  (Explore, Following, Maps-filter) — marks the outgoing link so
+   *  PostDetail knows this view is allowed to become the restorable "Home"
+   *  route (see lib/homeRoute.ts). Every other feed surface (Me, Profile,
+   *  Search, Tag, Map cluster) omits this, so opening a post from there
+   *  never overwrites Home's saved route. */
+  homeOriginated?: boolean;
 };
 
 function PostCardAuthor({ post }: { post: Post }) {
@@ -108,7 +115,7 @@ function PostCardAuthor({ post }: { post: Post }) {
   );
 }
 
-export default function PostCard({ post }: PostCardProps) {
+export default function PostCard({ post, homeOriginated = false }: PostCardProps) {
   const { user } = useAuth();
 
   // Fires only on a real click on this link — never on mount, refresh, or a
@@ -123,7 +130,7 @@ export default function PostCard({ post }: PostCardProps) {
 
   return (
     <article className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]">
-      <Link href={`/post/${post.id}`} onClick={handleOpen}>
+      <Link href={homeOriginated ? `/post/${post.id}?from=home` : `/post/${post.id}`} onClick={handleOpen}>
         <PostCardMedia post={post} />
 
         {/* The templated-text cover above already shows the title — repeating

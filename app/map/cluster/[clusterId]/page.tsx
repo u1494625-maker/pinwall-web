@@ -19,16 +19,5 @@ export default async function Page({
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value));
 
-  const latitude = Number(firstValue(resolvedSearchParams.lat) ?? 0);
-  const longitude = Number(firstValue(resolvedSearchParams.lng) ?? 0);
-  const expansionZoom = Number(firstValue(resolvedSearchParams.zoom) ?? 14);
-
-  return (
-    <ClusterPostFeedPage
-      postIds={postIds}
-      latitude={latitude}
-      longitude={longitude}
-      expansionZoom={expansionZoom}
-    />
-  );
+  return <ClusterPostFeedPage postIds={postIds} />;
 }

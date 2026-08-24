@@ -33,6 +33,13 @@ type PostDetailProps = {
    *  a plain visit, even by an admin, never does. Defaults to false so every
    *  other PostDetail caller is unaffected. */
   isModerationView?: boolean;
+  /** From /post/[id]?from=home — set only by PostCard links rendered inside
+   *  Home/Explore's own feed tabs (see PostCard.tsx). The ONLY thing that
+   *  lets this view record itself as the restorable "Home" route (see the
+   *  saveHomeRoute effect below and lib/homeRoute.ts). Defaults to false, so
+   *  a post opened from Me, a profile, Map, Search, a tag, or a shared link
+   *  never overwrites Home's saved state. */
+  isHomeOriginated?: boolean;
 };
 
 /** Avatar + name, linking to the author's public profile — real userId only,
@@ -199,7 +206,12 @@ function PostDetailSkeleton() {
   );
 }
 
-export default function PostDetail({ postId, initialMediaId, isModerationView = false }: PostDetailProps) {
+export default function PostDetail({
+  postId,
+  initialMediaId,
+  isModerationView = false,
+  isHomeOriginated = false,
+}: PostDetailProps) {
   const router = useRouter();
   const { user, signInWithGoogle } = useAuth();
   // A dedicated, fresh, per-id fetch — never the shared cross-page
@@ -333,10 +345,14 @@ export default function PostDetail({ postId, initialMediaId, isModerationView = 
   // live in sync as the user swipes to a different photo (activeMedia
   // changes), not just at mount, so this always matches whichever photo is
   // actually on screen — the same photo "View Map" itself would target.
+  // Gated on isHomeOriginated so a post opened from Me, a profile, Map,
+  // Search, or a tag can never overwrite Home's saved route — only a Post
+  // Detail reached via Home/Explore's own feed tabs is allowed to become
+  // Home state (see PostCard.tsx and app/post/[id]/page.tsx).
   useEffect(() => {
-    if (!post) return;
+    if (!post || !isHomeOriginated) return;
     saveHomeRoute(`/post/${post.id}${activeMedia ? `?mediaId=${activeMedia.id}` : ""}`);
-  }, [post, activeMedia]);
+  }, [post, activeMedia, isHomeOriginated]);
 
   if (loading) {
     return <PostDetailSkeleton />;

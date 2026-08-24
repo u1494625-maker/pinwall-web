@@ -24,9 +24,12 @@ export function FeedSkeleton() {
 
 type MasonryFeedProps = {
   posts: Post[];
+  /** Threaded straight through to each PostCard — see PostCard's own doc
+   *  comment. Only PinWallHome's own tabs pass this. */
+  homeOriginated?: boolean;
 };
 
-export default function MasonryFeed({ posts }: MasonryFeedProps) {
+export default function MasonryFeed({ posts, homeOriginated = false }: MasonryFeedProps) {
   if (posts.length === 0) {
     return (
       <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
@@ -43,7 +46,7 @@ export default function MasonryFeed({ posts }: MasonryFeedProps) {
   return (
     <div className="columns-2 gap-2.5 px-3">
       {posts.map((post) => (
-        <PostCard key={post.id} post={post} />
+        <PostCard key={post.id} post={post} homeOriginated={homeOriginated} />
       ))}
     </div>
   );
