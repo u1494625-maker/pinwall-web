@@ -474,7 +474,7 @@ export default function MapPage() {
           made the time-filter's position depend on the search control (and
           collide with Leaflet's own top-left zoom control); this way each
           control's position is independent and neither can push the other. */}
-      <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] px-3">
+      <div className="pointer-events-none absolute inset-x-0 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[1000] px-3">
         <div className="pointer-events-auto absolute left-1/2 top-0 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-white/95 p-1 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
           {MAP_TIME_FILTER_OPTIONS.map((option) => (
             <button

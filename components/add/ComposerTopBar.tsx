@@ -17,7 +17,7 @@ export default function ComposerTopBar({ cancelHref = "/", onCancel }: ComposerT
 
   if (onCancel) {
     return (
-      <div className="sticky top-0 z-10 border-b border-stone-100 bg-[#fbfaf7]/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-10 border-b border-stone-100 bg-[#fbfaf7]/95 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur">
         <button type="button" onClick={onCancel} aria-label="Cancel" className={className}>
           ‹
         </button>
@@ -26,7 +26,7 @@ export default function ComposerTopBar({ cancelHref = "/", onCancel }: ComposerT
   }
 
   return (
-    <div className="sticky top-0 z-10 border-b border-stone-100 bg-[#fbfaf7]/95 px-4 py-3 backdrop-blur">
+    <div className="sticky top-0 z-10 border-b border-stone-100 bg-[#fbfaf7]/95 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur">
       <Link href={cancelHref} aria-label="Cancel" className={className}>
         ‹
       </Link>

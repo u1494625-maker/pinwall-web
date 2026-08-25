@@ -45,13 +45,15 @@ export default function ProfileHeader({ profile, onBack, headerActions }: Profil
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="absolute left-4 top-5 grid size-9 place-items-center rounded-full bg-white/15 text-2xl leading-none text-white backdrop-blur-sm"
+          className="absolute left-4 top-[calc(env(safe-area-inset-top)+1.25rem)] grid size-9 place-items-center rounded-full bg-white/15 text-2xl leading-none text-white backdrop-blur-sm"
         >
           ‹
         </button>
       ) : null}
 
-      {headerActions ? <div className="absolute right-4 top-5 flex items-center gap-2">{headerActions}</div> : null}
+      {headerActions ? (
+        <div className="absolute right-4 top-[calc(env(safe-area-inset-top)+1.25rem)] flex items-center gap-2">{headerActions}</div>
+      ) : null}
 
       <div className="absolute inset-x-4 -bottom-9 z-20 flex items-end gap-3">
         {profile.avatarUrl ? (
