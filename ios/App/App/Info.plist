@@ -66,5 +66,16 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.kavanaka.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kavanaka</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
