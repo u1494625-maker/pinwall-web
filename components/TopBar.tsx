@@ -7,7 +7,7 @@ type TopBarProps = {
 
 export default function TopBar({ children }: TopBarProps) {
   return (
-    <header className="sticky top-0 z-20 relative flex items-center justify-center border-b border-stone-200/80 bg-[#fbfaf7]/95 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur">
+    <header className="sticky top-0 z-20 relative flex items-center justify-center border-b border-stone-200/80 bg-[#fbfaf7]/95 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.25rem)] backdrop-blur">
       {children}
       <Link
         href="/search"

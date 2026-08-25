@@ -105,7 +105,7 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3.5">
+      <div className="flex items-center justify-between border-b border-stone-100 px-4 pb-3.5 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
         <button
           type="button"
           onClick={() => router.back()}

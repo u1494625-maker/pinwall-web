@@ -75,7 +75,7 @@ export default function MessagesHome() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-8">
+      <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
         {categories.map(({ countKey, label, href, accent, Icon }) => {
           const count = counts[countKey];
           return (
