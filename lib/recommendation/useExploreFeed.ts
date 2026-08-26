@@ -44,10 +44,21 @@ type Generation = { seed: number; now: number; seenPostIds: Set<number>; rankedP
 /** A generation whose inputs are fixed but whose order hasn't been computed
  *  yet — everything rankExplorePosts needs except the interest profile,
  *  which is resolved (fetched or defaulted to empty) at computation time. */
-type PendingGeneration = { seed: number; now: number; seenPostIds: Set<number> };
+type PendingGeneration = {
+  seed: number;
+  now: number;
+  seenPostIds: Set<number>;
+  /** Only non-empty for a refresh-triggered generation: the exact post IDs
+   *  on screen at the moment refresh() was called (see refresh() below).
+   *  Used once, purely in-memory, to rank unseen candidates first for THIS
+   *  generation — never written to storage, never a permanent blacklist
+   *  (that's sessionSeen.ts's job, a separate soft penalty). Empty for the
+   *  very first generation, which has nothing previous to diversify against. */
+  previousPostIds: Set<number>;
+};
 
-function freshPending(): PendingGeneration {
-  return { seed: pickRankingSeed(), now: Date.now(), seenPostIds: getSeenPostIds() };
+function freshPending(previousPostIds: Set<number> = new Set()): PendingGeneration {
+  return { seed: pickRankingSeed(), now: Date.now(), seenPostIds: getSeenPostIds(), previousPostIds };
 }
 
 function generationFromPersisted(persisted: PersistedGeneration): Generation {
@@ -161,15 +172,45 @@ export function useExploreFeed(
       }
       if (cancelled) return;
 
-      const ranked = rankExplorePosts({
-        posts,
+      const rankingContext = {
         now: pending.now,
         currentUserId: user?.id,
         interestProfile,
         seenPostIds: pending.seenPostIds,
         seed: pending.seed,
-      });
-      const rankedPostIds = ranked.map((r) => r.post.id);
+      };
+
+      // The very first generation has nothing previous to diversify
+      // against — rank the whole pool exactly as before, uncapped.
+      //
+      // A refresh, however, prioritizes maximum diversity: unseen
+      // candidates (not on screen a moment ago) are ranked on their own via
+      // the exact same unchanged algorithm and come first, filling up to
+      // the SAME size the feed was before. Only if there genuinely aren't
+      // enough unseen posts to reach that size does it top up with
+      // previously-shown posts — also ranked via the identical algorithm,
+      // as their own independent pool — taking only as many as needed.
+      // Never a full rerank of everything together, which is what let a
+      // refresh reshuffle the same posts back to the top before.
+      let rankedPostIds: number[];
+      if (pending.previousPostIds.size === 0) {
+        rankedPostIds = rankExplorePosts({ posts, ...rankingContext }).map((r) => r.post.id);
+      } else {
+        const targetSize = pending.previousPostIds.size;
+        const unseenCandidates = posts.filter((post) => !pending.previousPostIds.has(post.id));
+        const unseenRanked = rankExplorePosts({ posts: unseenCandidates, ...rankingContext }).map((r) => r.post.id);
+
+        if (unseenRanked.length >= targetSize) {
+          rankedPostIds = unseenRanked.slice(0, targetSize);
+        } else {
+          const stillNeeded = targetSize - unseenRanked.length;
+          const previousCandidates = posts.filter((post) => pending.previousPostIds.has(post.id));
+          const fallbackRanked = rankExplorePosts({ posts: previousCandidates, ...rankingContext }).map(
+            (r) => r.post.id,
+          );
+          rankedPostIds = [...unseenRanked, ...fallbackRanked.slice(0, stillNeeded)];
+        }
+      }
       if (cancelled) return;
 
       setFrozen({ seed: pending.seed, now: pending.now, seenPostIds: pending.seenPostIds, rankedPostIds });
@@ -200,7 +241,7 @@ export function useExploreFeed(
   }, [frozen, posts]);
 
   function refresh() {
-    setPending(freshPending());
+    setPending(freshPending(new Set(frozen?.rankedPostIds ?? [])));
   }
 
   return {

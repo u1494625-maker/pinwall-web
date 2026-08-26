@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } f
 import Link from "next/link";
 import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
+import ExplorePullToRefresh from "./ExplorePullToRefresh";
 import ExploreRefreshButton from "./ExploreRefreshButton";
 import MasonryFeed, { FeedSkeleton } from "./MasonryFeed";
 import TopBar from "./TopBar";
@@ -260,10 +261,10 @@ export default function PinWallHome() {
             </Link>
           </div>
         )
-      ) : exploreLoading ? (
-        <FeedSkeleton />
       ) : (
-        <MasonryFeed posts={exploreFeedPosts} homeOriginated />
+        <ExplorePullToRefresh onRefresh={refreshExplore} refreshing={exploreRefreshing}>
+          {exploreLoading ? <FeedSkeleton /> : <MasonryFeed posts={exploreFeedPosts} homeOriginated />}
+        </ExplorePullToRefresh>
       )}
     </main>
   );

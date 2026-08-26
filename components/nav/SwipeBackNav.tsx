@@ -199,8 +199,15 @@ export default function SwipeBackNav({ children }: SwipeBackNavProps) {
     };
   }, []);
 
+  // No persistent style at all -- in particular, no willChange: "transform".
+  // will-change: transform (like transform itself) makes this div a new
+  // containing block for any position:fixed descendant (PostDetail's action
+  // bar, ExploreRefreshButton, etc.), pinning them to THIS box instead of the
+  // viewport for as long as it's set. It must only ever exist, imperatively,
+  // for the brief span of an active eligible drag (see the effect above) --
+  // never as a standing style, or every fixed element on every route breaks.
   return (
-    <div ref={containerRef} style={{ willChange: "transform" }}>
+    <div ref={containerRef}>
       {children}
     </div>
   );
