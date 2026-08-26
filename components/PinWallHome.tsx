@@ -263,7 +263,11 @@ export default function PinWallHome() {
         )
       ) : (
         <ExplorePullToRefresh onRefresh={refreshExplore} refreshing={exploreRefreshing}>
-          {exploreLoading ? <FeedSkeleton /> : <MasonryFeed posts={exploreFeedPosts} homeOriginated />}
+          {exploreLoading ? (
+            <FeedSkeleton />
+          ) : (
+            <MasonryFeed posts={exploreFeedPosts} homeOriginated trackViewportSeen />
+          )}
         </ExplorePullToRefresh>
       )}
     </main>

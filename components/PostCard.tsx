@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
+import { getViewportSeenPostIds, markPostViewportSeen } from "@/lib/recommendation/exploreViewportSeen";
 import { logDetailClickEvent } from "@/lib/recommendation/events";
 import type { Post } from "@/types/post";
 import DemoPhoto from "./DemoPhoto";
 import PostVideoTile from "./PostVideoTile";
+
+// A card only counts as seen once at least 70% of it is visible -- and
+// since the effect below only acts on entry.isIntersecting (the crossing
+// INTO view), a sliver of a pixel can never qualify either.
+const VIEWPORT_SEEN_THRESHOLD = 0.7;
 
 /** Purely decorative "multiple photos" glyph — no count, no click behavior. */
 function StackedPhotosIcon() {
@@ -79,6 +86,13 @@ type PostCardProps = {
    *  Search, Tag, Map cluster) omits this, so opening a post from there
    *  never overwrites Home's saved route. */
   homeOriginated?: boolean;
+  /** True only for cards rendered inside Explore specifically (never
+   *  Following, Maps, Profile, Search, Tag, or Map cluster) — opts this card
+   *  into viewport-seen tracking (see lib/recommendation/exploreViewportSeen.ts),
+   *  a scroll-driven "the user actually encountered this post" signal
+   *  consumed only by Explore's refresh, completely separate from
+   *  homeOriginated above and from sessionSeen.ts's own soft penalty. */
+  trackViewportSeen?: boolean;
 };
 
 function PostCardAuthor({ post }: { post: Post }) {
@@ -115,8 +129,9 @@ function PostCardAuthor({ post }: { post: Post }) {
   );
 }
 
-export default function PostCard({ post, homeOriginated = false }: PostCardProps) {
+export default function PostCard({ post, homeOriginated = false, trackViewportSeen = false }: PostCardProps) {
   const { user } = useAuth();
+  const articleRef = useRef<HTMLElement>(null);
 
   // Fires only on a real click on this link — never on mount, refresh, or a
   // ?postId= deep link, since those never trigger a click event here at
@@ -128,8 +143,37 @@ export default function PostCard({ post, homeOriginated = false }: PostCardProps
     }
   }
 
+  // Viewport-seen tracking (Explore only, see trackViewportSeen above) — a
+  // post already marked seen an earlier time this session never gets a new
+  // observer at all (nothing left to detect), and the first qualifying
+  // crossing disconnects immediately, matching "recorded once per session."
+  useEffect(() => {
+    if (!trackViewportSeen) return;
+    if (getViewportSeenPostIds().has(post.id)) return;
+    const node = articleRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            markPostViewportSeen(post.id);
+            observer.disconnect();
+          }
+        }
+      },
+      { threshold: VIEWPORT_SEEN_THRESHOLD },
+    );
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [trackViewportSeen, post.id]);
+
   return (
-    <article className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]">
+    <article
+      ref={articleRef}
+      className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]"
+    >
       <Link href={homeOriginated ? `/post/${post.id}?from=home` : `/post/${post.id}`} onClick={handleOpen}>
         <PostCardMedia post={post} />
 
