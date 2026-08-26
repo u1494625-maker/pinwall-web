@@ -20,7 +20,7 @@ export default function ClusterPostFeedPage({ postIds }: ClusterPostFeedPageProp
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <header className="flex items-start justify-between gap-3 px-4 pb-4 pt-8">
+      <header className="flex items-start justify-between gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
         <div>
           <Link href="/map" className="text-xs font-bold text-kavanaka-aqua">
             ‹ Back to map
