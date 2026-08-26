@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import BottomNav from "@/components/BottomNav";
+import SwipeBackNav from "@/components/nav/SwipeBackNav";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 import "./globals.css";
 
@@ -38,7 +39,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <AuthProvider>
-          {children}
+          <SwipeBackNav>{children}</SwipeBackNav>
           <BottomNav />
         </AuthProvider>
       </body>

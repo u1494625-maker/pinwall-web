@@ -72,7 +72,7 @@ export default function ImageCropModal({ imageSrc, shape, aspect, onCancel, onCr
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+    <div data-no-swipe-back className="fixed inset-0 z-50 flex flex-col bg-black">
       <div className="relative flex-1">
         <Cropper
           image={imageSrc}
