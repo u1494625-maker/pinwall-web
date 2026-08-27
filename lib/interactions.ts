@@ -43,23 +43,26 @@ export async function unsavePost(postId: number, userId: string): Promise<void> 
 }
 
 /**
- * Fire-and-forget: bumps a post's persistent view_count by exactly one via
- * an atomic SQL increment (see supabase/post_views.sql's
- * increment_post_view) — never awaited, so a slow/failed write can never
- * delay or visibly affect the UI, same convention as
- * lib/recommendation/events.ts's logDetailClickEvent. Deliberately never
+ * Bumps a post's persistent view_count by exactly one via an atomic SQL
+ * increment (see supabase/post_views.sql's increment_post_view). Resolves
+ * to whether the write actually succeeded, so a caller that wants to
+ * reflect it locally (PostCard's own displayed count) only does so after a
+ * real success — never optimistically. Still fire-and-forget-*able*:
+ * PostDetail's load effect calls this without awaiting or checking the
+ * result at all, same convention as lib/recommendation/events.ts's
+ * logDetailClickEvent, and that keeps working unchanged. Deliberately never
  * deduplicated by user/session, and works for a signed-out caller too (the
  * RPC is security definer, granted to anon) — a post's own author viewing
  * their own post, or the same viewer scrolling past it twice, both count.
- * Callers (PostCard's viewport-visibility observer, PostDetail's load
- * effect) decide WHEN to call this; this function applies no gating itself.
+ * Callers decide WHEN to call this; this function applies no gating itself.
  */
-export function incrementPostView(postId: number): void {
-  void supabase.rpc("increment_post_view", { target_post_id: postId }).then(({ error }) => {
-    if (error) {
-      console.error("Failed to increment post view count:", error.message);
-    }
-  });
+export async function incrementPostView(postId: number): Promise<boolean> {
+  const { error } = await supabase.rpc("increment_post_view", { target_post_id: postId });
+  if (error) {
+    console.error("Failed to increment post view count:", error.message);
+    return false;
+  }
+  return true;
 }
 
 export async function followUser(followerUserId: string, followingUserId: string): Promise<void> {

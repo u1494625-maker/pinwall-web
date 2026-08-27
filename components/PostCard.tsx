@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { incrementPostView } from "@/lib/interactions";
@@ -58,19 +58,30 @@ function EyeIcon() {
  *  weight. Shown over any rendered cover (photo, video, or a templated
  *  text post's own visual), skipped only when there's no cover at all to
  *  overlay onto. */
-function ViewCountBadge({ post }: { post: Post }) {
+function ViewCountBadge({ viewCount }: { viewCount: number }) {
   return (
     <span
       aria-hidden="true"
       className="absolute bottom-1.5 left-1.5 flex items-center gap-0.5 text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.55)]"
     >
       <EyeIcon />
-      <span className="text-[11px] font-bold leading-none">{post.viewCount}</span>
+      <span className="text-[11px] font-bold leading-none">{viewCount}</span>
     </span>
   );
 }
 
-function PostCardMedia({ post, isOwner }: { post: Post; isOwner: boolean }) {
+function PostCardMedia({
+  post,
+  isOwner,
+  viewCount,
+}: {
+  post: Post;
+  isOwner: boolean;
+  /** The locally-displayed count (see PostCard's own displayedViewCount) —
+   *  not post.viewCount directly, so a successful in-session increment
+   *  shows up immediately without waiting on a full feed refetch. */
+  viewCount: number;
+}) {
   const cover = post.media[0];
 
   // A post with no media at all and no template has no cover — dead space
@@ -112,7 +123,7 @@ function PostCardMedia({ post, isOwner }: { post: Post; isOwner: boolean }) {
           effect below) — this only controls who's ALLOWED to SEE the
           number, same private-to-the-author visibility as a private
           analytics stat. */}
-      {isOwner ? <ViewCountBadge post={post} /> : null}
+      {isOwner ? <ViewCountBadge viewCount={viewCount} /> : null}
     </div>
   );
 }
@@ -180,6 +191,23 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
   // ownership.
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
 
+  // Locally-displayed view count, separate from post.viewCount itself — the
+  // view-counting effect below bumps THIS (only once its RPC call actually
+  // succeeds, never optimistically) so the owner's badge updates in this
+  // session without waiting on a full feed refetch. Resetting it when
+  // post.viewCount itself genuinely changes (a real data refresh/remount)
+  // is done during render, not in a useEffect — React's own recommended
+  // "adjust state when a prop changes" pattern (avoids an extra render
+  // pass, and the lint warning against setState-in-effect). An ordinary
+  // rerender where post.viewCount hasn't changed leaves an in-session local
+  // increment untouched, since the condition below simply won't be true.
+  const [displayedViewCount, setDisplayedViewCount] = useState(post.viewCount);
+  const [lastSyncedViewCount, setLastSyncedViewCount] = useState(post.viewCount);
+  if (post.viewCount !== lastSyncedViewCount) {
+    setLastSyncedViewCount(post.viewCount);
+    setDisplayedViewCount(post.viewCount);
+  }
+
   // Fires only on a real click on this link — never on mount, refresh, or a
   // ?postId= deep link, since those never trigger a click event here at
   // all. Fire-and-forget: never awaited, so a slow/failed insert can never
@@ -231,7 +259,11 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            incrementPostView(post.id);
+            incrementPostView(post.id).then((succeeded) => {
+              if (succeeded) {
+                setDisplayedViewCount((count) => count + 1);
+              }
+            });
           }
         }
       },
@@ -248,7 +280,7 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
       className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]"
     >
       <Link href={homeOriginated ? `/post/${post.id}?from=home` : `/post/${post.id}`} onClick={handleOpen}>
-        <PostCardMedia post={post} isOwner={isOwner} />
+        <PostCardMedia post={post} isOwner={isOwner} viewCount={displayedViewCount} />
 
         {/* The templated-text cover above already shows the title — repeating
             it here would be a literal duplicate, not a supporting caption. */}

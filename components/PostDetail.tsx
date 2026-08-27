@@ -272,7 +272,7 @@ export default function PostDetail({
         // genuinely different postId (or a fresh mount of this page), never
         // for an ordinary rerender, so this can't double-count.
         if (result) {
-          incrementPostView(result.id);
+          void incrementPostView(result.id);
         }
       }
     }
