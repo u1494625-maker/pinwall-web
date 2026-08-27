@@ -8,6 +8,11 @@ const MAX_SCALE = 4;
 // barely-off baseline (e.g. 1.004) sitting around after a pinch settles.
 const SNAP_BACK_THRESHOLD = 1.02;
 const SNAP_BACK_MS = 150;
+// Same value and rationale as PostMediaGallery.tsx's usePointerTap (a real
+// finger tap includes a few pixels of incidental movement) — not imported
+// from there, since that would make this a circular import (see that
+// file's own comment); kept in sync by convention, checked at each edit.
+const TAP_MAX_MOVEMENT_PX = 12;
 
 type UseZoomPanOptions = {
   /** Only the currently-visible slide should ever respond to touches. When
@@ -18,6 +23,16 @@ type UseZoomPanOptions = {
    *  there is no separate "which photo is zoomed" state to reconcile,
    *  since only ever one slide is active at a time. */
   active: boolean;
+  /** Fires when a completed touch gesture on this slide qualifies as a tap:
+   *  never more than one finger down at any point, and the primary finger
+   *  never moved past TAP_MAX_MOVEMENT_PX — the same rule regardless of
+   *  whether a pan was technically "armed" (state.scale > 1), so a tap
+   *  closes the viewer whether zoomed in or not, and a real drag never
+   *  does. Deliberately the ONLY tap/swipe/pinch/pan recognizer for
+   *  PostFullscreenGallery — see this file's own top doc comment for why
+   *  a separate pointer-event-based tap detector (usePointerTap) proved
+   *  unreliable layered on top of this hook's raw touch listeners. */
+  onTap?: () => void;
 };
 
 function touchDistance(a: Touch, b: Touch): number {
@@ -29,20 +44,39 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Pinch-to-zoom + pan for one fullscreen gallery slide — plain refs and
- * direct style mutation throughout (never React state for the continuous
- * gesture), same imperative-DOM discipline as SwipeBackNav/pull-to-refresh
- * elsewhere in this app. Returns a ref to attach to the slide's own
- * wrapper element; nothing else to wire up. Gating single-finger pan vs.
- * the shared carousel's native scroll-snap swipe needs no coordination
- * with that container at all — calling preventDefault() inside this
- * hook's own touchmove (only when a pinch or an at-scale pan is actually
- * in progress) suppresses the ancestor's default scroll action for that
- * same gesture; at scale 1, a single finger never enters the pan branch,
- * so normal swipe-between-photos is completely untouched.
+ * Pinch-to-zoom + pan + tap-to-close for one fullscreen gallery slide — the
+ * one unified touch-event state machine for this whole gesture surface
+ * (tap, swipe, pinch, pan all reconciled together here), deliberately
+ * touch-events-only rather than mixing in the pointer-event-based
+ * usePointerTap the way an earlier version did. That mix was fragile: iOS
+ * WKWebView fires pointercancel (not pointerup) once a drag is committed to
+ * native scrolling, or once this hook's own touchmove preventDefault() is
+ * called during a pinch/pan — and a pointer-based tap counter that only
+ * listens for pointerup silently accumulates orphaned "still down" pointers
+ * forever, eventually misreading every later tap as multi-touch. Touch
+ * events don't have that ambiguity: touchend reliably fires for the full
+ * gesture lifecycle even when native scrolling also happened for it.
+ *
+ * Plain refs and direct style mutation throughout for the zoom/pan
+ * transform (never React state for the continuous gesture), same
+ * imperative-DOM discipline as SwipeBackNav/pull-to-refresh elsewhere in
+ * this app. Returns a ref to attach to the slide's own wrapper element;
+ * nothing else to wire up. Gating single-finger pan vs. the shared
+ * carousel's native scroll-snap swipe needs no coordination with that
+ * container at all — calling preventDefault() inside this hook's own
+ * touchmove (only when a pinch or an at-scale pan is actually in progress)
+ * suppresses the ancestor's default scroll action for that same gesture; at
+ * scale 1, a single finger never enters the pan branch, so normal
+ * swipe-between-photos is completely untouched, and tap-tracking (below)
+ * runs independently of it regardless.
  */
-export function useZoomPan({ active }: UseZoomPanOptions) {
+export function useZoomPan({ active, onTap }: UseZoomPanOptions) {
   const elementRef = useRef<HTMLDivElement>(null);
+  const onTapRef = useRef(onTap);
+
+  useEffect(() => {
+    onTapRef.current = onTap;
+  }, [onTap]);
 
   // Resets whenever this slide stops being the active one.
   useEffect(() => {
@@ -77,6 +111,13 @@ export function useZoomPan({ active }: UseZoomPanOptions) {
         offsetY: number;
       },
       pan: null as null | { startX: number; startY: number; startTranslateX: number; startTranslateY: number },
+      // Tracked independently of pinch/pan, from the first finger down to
+      // the last finger up — a tap requires BOTH never-multi-touch AND
+      // never-moved-past-threshold, checked once at touchend. Deliberately
+      // tracked even while a pan is armed (state.scale > 1), so a genuine
+      // tap while already zoomed in still closes the viewer; only an
+      // actual drag (which also drives the pan above) disqualifies it.
+      tap: null as null | { startX: number; startY: number; moved: boolean; multiTouch: boolean },
     };
 
     function apply() {
@@ -93,6 +134,21 @@ export function useZoomPan({ active }: UseZoomPanOptions) {
     }
 
     function onTouchStart(event: TouchEvent) {
+      if (event.touches.length === 1) {
+        // Start of a brand-new gesture (first finger down) — always begin
+        // tracking whether this turns out to be a tap, regardless of
+        // whether pan also gets armed below.
+        const touch = event.touches[0];
+        state.tap = { startX: touch.clientX, startY: touch.clientY, moved: false, multiTouch: false };
+      } else if (event.touches.length === 2 && state.tap) {
+        // A second finger joining disqualifies the WHOLE gesture from ever
+        // being a tap, even if it later reduces back to 1 or 0 fingers. (If
+        // two fingers touch down simultaneously with no prior single-finger
+        // start, state.tap is simply never set at all, which is the same
+        // "never a tap" outcome by construction.)
+        state.tap.multiTouch = true;
+      }
+
       if (event.touches.length === 2) {
         const [a, b] = [event.touches[0], event.touches[1]];
         const rect = el.getBoundingClientRect();
@@ -122,6 +178,19 @@ export function useZoomPan({ active }: UseZoomPanOptions) {
     }
 
     function onTouchMove(event: TouchEvent) {
+      // Tap-disqualification runs independently of the pinch/pan branches
+      // below — it only needs to know "did the primary finger ever move
+      // past the threshold," not which gesture (if any) that movement was
+      // interpreted as.
+      if (state.tap && !state.tap.moved && event.touches.length >= 1) {
+        const touch = event.touches[0];
+        const dx = Math.abs(touch.clientX - state.tap.startX);
+        const dy = Math.abs(touch.clientY - state.tap.startY);
+        if (dx >= TAP_MAX_MOVEMENT_PX || dy >= TAP_MAX_MOVEMENT_PX) {
+          state.tap.moved = true;
+        }
+      }
+
       if (event.touches.length === 2 && state.pinch) {
         event.preventDefault();
         const { pinch } = state;
@@ -151,6 +220,18 @@ export function useZoomPan({ active }: UseZoomPanOptions) {
     function onTouchEnd(event: TouchEvent) {
       if (event.touches.length < 2) state.pinch = null;
       if (event.touches.length < 1) state.pan = null;
+
+      if (event.touches.length === 0) {
+        const tap = state.tap;
+        state.tap = null;
+        // touchcancel (this same handler is registered for both — see
+        // below) never counts as a tap regardless of movement: it means
+        // the OS/browser reinterpreted this gesture as something else
+        // (e.g. a system gesture), not that the user completed a plain tap.
+        if (event.type === "touchend" && tap && !tap.multiTouch && !tap.moved) {
+          onTapRef.current?.();
+        }
+      }
 
       if (state.scale <= SNAP_BACK_THRESHOLD) {
         state.scale = MIN_SCALE;

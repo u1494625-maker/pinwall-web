@@ -270,8 +270,15 @@ export default function PostDetail({
         setLoading(false);
         // Counts one view per real open — this effect only runs again for a
         // genuinely different postId (or a fresh mount of this page), never
-        // for an ordinary rerender, so this can't double-count.
-        if (result) {
+        // for an ordinary rerender, so this can't double-count. Skipped
+        // client-side for the post's own author purely to avoid a wasted
+        // round trip — the real, enforced guarantee is the owner exclusion
+        // inside increment_post_view itself (see
+        // supabase/post_views_owner_exclusion.sql), which refuses the
+        // increment based on the request's own authenticated identity
+        // regardless of what any client sends or how fast its own auth
+        // state has caught up.
+        if (result && user?.id !== result.userId) {
           void incrementPostView(result.id);
         }
       }
@@ -282,6 +289,11 @@ export default function PostDetail({
     return () => {
       cancelled = true;
     };
+    // user deliberately excluded: read once, at the moment this specific
+    // load resolves — not meant to retrigger a whole new fetch (and a
+    // second view count) just because the viewer signs in or out while
+    // already sitting on this page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId, isModerationView]);
 
   // Reporting this post immediately makes it behave as if it were already

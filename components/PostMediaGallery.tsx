@@ -27,21 +27,35 @@ type PostMediaGalleryProps = {
 };
 
 // A real finger tap naturally includes a few pixels of incidental movement —
-// too small a threshold would misread genuine taps as swipes.
+// too small a threshold would misread genuine taps as swipes. lib/
+// useZoomPan.ts defines its own copy of this exact same value (not imported
+// — this file already sits on that module's import path via
+// PostFullscreenGallery, and importing back would make it circular) for its
+// own unified tap/swipe/pinch/pan state machine.
 const TAP_MAX_MOVEMENT_PX = 12;
 
 /**
  * Distinguishes a tap from a swipe using nothing but the pointer's start/end
  * coordinates — no preventDefault, no gesture library, native scrolling is
- * completely unaffected. Exported so PostFullscreenGallery can reuse it for
- * its own tap-to-close, matching this codebase's existing pattern of
- * exporting a small shared hook alongside its main component.
+ * completely unaffected. Used by the normal (non-fullscreen) gallery only —
+ * PostFullscreenGallery has its own unified touch-event state machine (see
+ * lib/useZoomPan.ts) instead, since it also has to reconcile pinch/pan,
+ * where mixing pointer events with that hook's raw touch events proved
+ * fragile (see that file's own doc comment for why).
  *
  * Ignores any gesture where more than one pointer was ever down at once —
  * without this, a second finger touching down mid-pinch would silently
  * overwrite the tracked start point, and a quick two-finger pinch could
- * read back as a small enough net movement to register as a tap (closing
- * PostFullscreenGallery, or opening it, mid-gesture).
+ * read back as a small enough net movement to register as a tap.
+ *
+ * Also treats a CANCELLED pointer exactly like a released one for counting
+ * purposes (just never a tap) — iOS WKWebView fires pointercancel, not
+ * pointerup, once it commits a drag to native scrolling (or once app code
+ * elsewhere calls preventDefault on the matching touch event). Without this,
+ * a cancelled pointer's count is never decremented, so after the very first
+ * swipe the count permanently drifts above zero and every later tap gets
+ * misread as multi-touch and silently dropped — this was a real, confirmed
+ * regression, not a hypothetical.
  */
 export function usePointerTap(onTap: () => void) {
   const startRef = useRef<{ x: number; y: number } | null>(null);
@@ -58,10 +72,15 @@ export function usePointerTap(onTap: () => void) {
     startRef.current = { x: event.clientX, y: event.clientY };
   }
 
-  function onPointerUp(event: PointerEvent) {
+  function endPointer(): { x: number; y: number } | null {
     activePointerCountRef.current = Math.max(0, activePointerCountRef.current - 1);
     const start = startRef.current;
     startRef.current = null;
+    return start;
+  }
+
+  function onPointerUp(event: PointerEvent) {
+    const start = endPointer();
     if (multiTouchRef.current || !start) return;
     const dx = Math.abs(event.clientX - start.x);
     const dy = Math.abs(event.clientY - start.y);
@@ -70,7 +89,13 @@ export function usePointerTap(onTap: () => void) {
     }
   }
 
-  return { onPointerDown, onPointerUp };
+  // A cancelled pointer is never a tap, regardless of movement — but it
+  // must still be released from the count, which is the entire fix.
+  function onPointerCancel() {
+    endPointer();
+  }
+
+  return { onPointerDown, onPointerUp, onPointerCancel };
 }
 
 /** Compact overlay pill for "View on Map" — same visual language as the

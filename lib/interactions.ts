@@ -44,17 +44,16 @@ export async function unsavePost(postId: number, userId: string): Promise<void> 
 
 /**
  * Bumps a post's persistent view_count by exactly one via an atomic SQL
- * increment (see supabase/post_views.sql's increment_post_view). Resolves
- * to whether the write actually succeeded, so a caller that wants to
- * reflect it locally (PostCard's own displayed count) only does so after a
- * real success — never optimistically. Still fire-and-forget-*able*:
- * PostDetail's load effect calls this without awaiting or checking the
- * result at all, same convention as lib/recommendation/events.ts's
- * logDetailClickEvent, and that keeps working unchanged. Deliberately never
- * deduplicated by user/session, and works for a signed-out caller too (the
- * RPC is security definer, granted to anon) — a post's own author viewing
- * their own post, or the same viewer scrolling past it twice, both count.
- * Callers decide WHEN to call this; this function applies no gating itself.
+ * increment (see supabase/post_views_owner_exclusion.sql's
+ * increment_post_view). The only caller is PostDetail's load effect, once
+ * per genuine open — PostCard never calls this; merely scrolling a post
+ * into view is not a View. Fire-and-forget: never awaited, so a slow/failed
+ * write can never delay anything the caller already did. Deliberately never
+ * deduplicated by user/session — the same non-owner opening the same post
+ * repeatedly counts again every time. Works for a signed-out caller too
+ * (the RPC is security definer, granted to anon). The post's own author
+ * never increments their own post's count: enforced inside the RPC itself
+ * (the real, database-level guarantee), not by this function or its caller.
  */
 export async function incrementPostView(postId: number): Promise<boolean> {
   const { error } = await supabase.rpc("increment_post_view", { target_post_id: postId });

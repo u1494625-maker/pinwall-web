@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type SyntheticEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
-import { usePointerTap } from "@/components/PostMediaGallery";
 import { useZoomPan } from "@/lib/useZoomPan";
 import type { PostMedia } from "@/types/post";
 
@@ -20,16 +19,50 @@ type PostFullscreenGalleryProps = {
 };
 
 /**
- * One slide, pinch-zoom/pan-capable via useZoomPan — only the currently-
- * active (visible) slide is ever actually touchable, so `active` both gates
- * the gesture and resets scale/translate back to 1/0/0 the moment this
- * slide stops being current (swiped away, or a fresh dialog instance on
- * reopen, since PostFullscreenGallery remounts via its own key prop).
+ * One slide, pinch-zoom/pan/tap-to-close-capable via useZoomPan (that hook
+ * owns the entire tap/swipe/pinch/pan recognition for this whole gallery —
+ * see its own doc comment) — only the currently-active (visible) slide is
+ * ever actually touchable, so `active` both gates the gesture and resets
+ * scale/translate back to 1/0/0 the moment this slide stops being current
+ * (swiped away, or a fresh dialog instance on reopen, since
+ * PostFullscreenGallery remounts via its own key prop). `onTap` is passed
+ * to every slide uniformly, since only the active one ever has listeners
+ * attached to actually invoke it.
+ *
+ * useZoomPan's state machine is touch-events-only by design (see its doc
+ * comment for why pointer events proved fragile here) — which means it can
+ * never fire for a mouse-only pointer in the first place, since a plain
+ * mouse never dispatches touchstart/touchend at all. This app is used from
+ * a real desktop/web browser as well as Capacitor iOS, so onPointerUp below
+ * is the mouse-input path — deliberately NOT a plain onClick. A tap that
+ * opens this dialog is followed, on real touchscreens, by a delayed
+ * synthetic "ghost click" compatibility event browsers replay for the same
+ * tap (standard mobile-browser behavior, confirmed here empirically via
+ * CDP touch dispatch); by the time it fires, this now-open dialog's slide
+ * sits at those same screen coordinates, so a plain onClick here would
+ * immediately re-close the dialog it just opened. Filtering to
+ * pointerType === "mouse" sidesteps that entirely: real mice never have a
+ * delayed ghost pointer event synthesized after them (unlike the legacy
+ * click family), so this only ever fires for a genuine mouse click, never
+ * as an echo of the touch tap that opened this dialog in the first place.
  */
-function ZoomableSlide({ item, active, alt }: { item: PostMedia; active: boolean; alt: string }) {
-  const zoomRef = useZoomPan({ active });
+function ZoomableSlide({
+  item,
+  active,
+  alt,
+  onTap,
+}: {
+  item: PostMedia;
+  active: boolean;
+  alt: string;
+  onTap: () => void;
+}) {
+  const zoomRef = useZoomPan({ active, onTap });
+  function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse") onTap();
+  }
   return (
-    <div ref={zoomRef} className="h-full w-full shrink-0 snap-start snap-always">
+    <div ref={zoomRef} onPointerUp={handlePointerUp} className="h-full w-full shrink-0 snap-start snap-always">
       <DemoPhoto src={item.url} alt={alt} fit="contain" placeholderClassName="bg-black" className="size-full" />
     </div>
   );
@@ -59,7 +92,6 @@ export default function PostFullscreenGallery({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const tapHandlers = usePointerTap(onClose);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -123,7 +155,6 @@ export default function PostFullscreenGallery({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        {...tapHandlers}
         className="no-scrollbar flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain bg-black"
       >
         {media.map((item, index) => (
@@ -132,6 +163,7 @@ export default function PostFullscreenGallery({
             item={item}
             active={index === currentIndex}
             alt={`${title} — photo ${index + 1} of ${media.length}`}
+            onTap={onClose}
           />
         ))}
       </div>

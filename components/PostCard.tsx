@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { incrementPostView } from "@/lib/interactions";
 import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import { getViewportSeenPostIds, markPostViewportSeen } from "@/lib/recommendation/exploreViewportSeen";
 import { logDetailClickEvent } from "@/lib/recommendation/events";
@@ -16,13 +15,6 @@ import PostVideoTile from "./PostVideoTile";
 // since the effect below only acts on entry.isIntersecting (the crossing
 // INTO view), a sliver of a pixel can never qualify either.
 const VIEWPORT_SEEN_THRESHOLD = 0.7;
-
-// A persistent post view counts at 30% visibility -- a lower bar than
-// Explore's own 70% "seen" signal above, and a completely separate concern
-// (see the view-counting effect below): different threshold, different
-// observer instance, different backing store (posts.view_count via
-// Supabase, not sessionStorage), on every card everywhere, not just Explore.
-const VIEW_COUNT_THRESHOLD = 0.3;
 
 /** Purely decorative "multiple photos" glyph — no count, no click behavior. */
 function StackedPhotosIcon() {
@@ -73,14 +65,9 @@ function ViewCountBadge({ viewCount }: { viewCount: number }) {
 function PostCardMedia({
   post,
   isOwner,
-  viewCount,
 }: {
   post: Post;
   isOwner: boolean;
-  /** The locally-displayed count (see PostCard's own displayedViewCount) —
-   *  not post.viewCount directly, so a successful in-session increment
-   *  shows up immediately without waiting on a full feed refetch. */
-  viewCount: number;
 }) {
   const cover = post.media[0];
 
@@ -119,11 +106,11 @@ function PostCardMedia({
           ) : null}
         </>
       )}
-      {/* View counting itself always runs regardless of ownership (see the
-          effect below) — this only controls who's ALLOWED to SEE the
-          number, same private-to-the-author visibility as a private
+      {/* view_count itself is incremented only by PostDetail (see
+          incrementPostView there) — this only controls who's ALLOWED to SEE
+          the number, same private-to-the-author visibility as a private
           analytics stat. */}
-      {isOwner ? <ViewCountBadge viewCount={viewCount} /> : null}
+      {isOwner ? <ViewCountBadge viewCount={post.viewCount} /> : null}
     </div>
   );
 }
@@ -186,27 +173,10 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
   // The one central place this is decided — not a route-specific prop, so
   // it's correct everywhere PostCard renders (Home/Explore, Following,
   // Maps, Me, a public profile, Search, Tag, Map cluster) with no per-page
-  // wiring. Determines only whether the view-count badge is SHOWN below;
-  // view tracking itself (both effects) runs unconditionally regardless of
-  // ownership.
+  // wiring. Determines only whether the view-count badge is SHOWN below —
+  // the count itself is never incremented from here at all (see
+  // PostDetail's own incrementPostView call).
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
-
-  // Locally-displayed view count, separate from post.viewCount itself — the
-  // view-counting effect below bumps THIS (only once its RPC call actually
-  // succeeds, never optimistically) so the owner's badge updates in this
-  // session without waiting on a full feed refetch. Resetting it when
-  // post.viewCount itself genuinely changes (a real data refresh/remount)
-  // is done during render, not in a useEffect — React's own recommended
-  // "adjust state when a prop changes" pattern (avoids an extra render
-  // pass, and the lint warning against setState-in-effect). An ordinary
-  // rerender where post.viewCount hasn't changed leaves an in-session local
-  // increment untouched, since the condition below simply won't be true.
-  const [displayedViewCount, setDisplayedViewCount] = useState(post.viewCount);
-  const [lastSyncedViewCount, setLastSyncedViewCount] = useState(post.viewCount);
-  if (post.viewCount !== lastSyncedViewCount) {
-    setLastSyncedViewCount(post.viewCount);
-    setDisplayedViewCount(post.viewCount);
-  }
 
   // Fires only on a real click on this link — never on mount, refresh, or a
   // ?postId= deep link, since those never trigger a click event here at
@@ -244,43 +214,13 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
     return () => observer.disconnect();
   }, [trackViewportSeen, post.id]);
 
-  // Persistent view counting — every card, every feed (not Explore-only; a
-  // completely separate observer/threshold/backing-store from the seen-
-  // tracker above, per its own doc comment). Unlike that tracker, this one
-  // is NEVER disconnected after a hit: only acting on entry.isIntersecting
-  // means remaining above 30% can't repeatedly fire (the browser only
-  // invokes this callback on an actual threshold crossing), but leaving and
-  // later re-entering the viewport correctly counts another view.
-  useEffect(() => {
-    const node = articleRef.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            incrementPostView(post.id).then((succeeded) => {
-              if (succeeded) {
-                setDisplayedViewCount((count) => count + 1);
-              }
-            });
-          }
-        }
-      },
-      { threshold: VIEW_COUNT_THRESHOLD },
-    );
-    observer.observe(node);
-
-    return () => observer.disconnect();
-  }, [post.id]);
-
   return (
     <article
       ref={articleRef}
       className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]"
     >
       <Link href={homeOriginated ? `/post/${post.id}?from=home` : `/post/${post.id}`} onClick={handleOpen}>
-        <PostCardMedia post={post} isOwner={isOwner} viewCount={displayedViewCount} />
+        <PostCardMedia post={post} isOwner={isOwner} />
 
         {/* The templated-text cover above already shows the title — repeating
             it here would be a literal duplicate, not a supporting caption. */}

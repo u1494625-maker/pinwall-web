@@ -205,7 +205,13 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
               maxLength={MAX_BIO_LENGTH}
               rows={3}
               placeholder="Tell people a bit about yourself…"
-              className="mt-1.5 w-full resize-none border-none bg-transparent text-sm leading-relaxed text-stone-900 outline-none placeholder:text-stone-400"
+              // text-base (16px), not text-sm (14px) — iOS Safari/WKWebView
+              // auto-zooms the whole page on focus for any text input/
+              // textarea whose computed font-size is below 16px; the
+              // display-name input above was already at 16px (text-base)
+              // and never triggered this. leading-relaxed is unaffected
+              // (a separate line-height utility, not tied to font size).
+              className="mt-1.5 w-full resize-none border-none bg-transparent text-base leading-relaxed text-stone-900 outline-none placeholder:text-stone-400"
             />
             <p className="text-right text-[11px] font-medium tabular-nums text-stone-400">
               {MAX_BIO_LENGTH - bio.length}
