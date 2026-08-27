@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { incrementPostView } from "@/lib/interactions";
 import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import { getViewportSeenPostIds, markPostViewportSeen } from "@/lib/recommendation/exploreViewportSeen";
 import { logDetailClickEvent } from "@/lib/recommendation/events";
@@ -15,6 +16,13 @@ import PostVideoTile from "./PostVideoTile";
 // since the effect below only acts on entry.isIntersecting (the crossing
 // INTO view), a sliver of a pixel can never qualify either.
 const VIEWPORT_SEEN_THRESHOLD = 0.7;
+
+// A persistent post view counts at 30% visibility -- a lower bar than
+// Explore's own 70% "seen" signal above, and a completely separate concern
+// (see the view-counting effect below): different threshold, different
+// observer instance, different backing store (posts.view_count via
+// Supabase, not sessionStorage), on every card everywhere, not just Explore.
+const VIEW_COUNT_THRESHOLD = 0.3;
 
 /** Purely decorative "multiple photos" glyph — no count, no click behavior. */
 function StackedPhotosIcon() {
@@ -34,45 +42,77 @@ function StackedPhotosIcon() {
   );
 }
 
-function PostCardMedia({ post }: { post: Post }) {
+/** Purely decorative eye glyph for the view-count overlay below. */
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="size-3">
+      <path d="M1 12s4.5-7 11-7 11 7 11 7-4.5 7-11 7-11-7-11-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+/** Small, white, drop-shadowed eye + count — deliberately no background
+ *  chip (unlike the dark-circle "multiple photos" badge above), so it reads
+ *  as a light overlay directly on the media rather than added visual
+ *  weight. Shown over any rendered cover (photo, video, or a templated
+ *  text post's own visual), skipped only when there's no cover at all to
+ *  overlay onto. */
+function ViewCountBadge({ post }: { post: Post }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute bottom-1.5 left-1.5 flex items-center gap-0.5 text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.55)]"
+    >
+      <EyeIcon />
+      <span className="text-[11px] font-bold leading-none">{post.viewCount}</span>
+    </span>
+  );
+}
+
+function PostCardMedia({ post, isOwner }: { post: Post; isOwner: boolean }) {
   const cover = post.media[0];
 
-  if (!cover) {
-    // A templated text post — the template IS the post's visual cover,
-    // showing its title, exactly like a photo cover shows the photo. The
-    // headline below (in PostCard itself) is skipped for these so the title
-    // never appears twice. A text post with no template (published before
-    // this feature, or without one) falls through to the plain
-    // title/author-only card exactly as before.
-    if (post.textTemplate) {
-      return <TextPostVisual template={post.textTemplate} text={getDisplayTitle(post)} size="card" />;
-    }
-
-    // A post with no media at all and no template — dead space would just
-    // be visual noise, so the card stays naturally compact without one.
+  // A post with no media at all and no template has no cover — dead space
+  // would just be visual noise, so the card stays naturally compact
+  // without one, and there's nothing here for a view badge to sit on top of.
+  if (!cover && !post.textTemplate) {
     return null;
-  }
-
-  if (cover.type === "video") {
-    return <PostVideoTile src={cover.url} className="aspect-[4/5]" />;
   }
 
   return (
     <div className="relative">
-      <DemoPhoto
-        src={cover.url}
-        alt={getDisplayTitle(post)}
-        className="w-full"
-        style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
-      />
-      {post.media.length > 1 ? (
-        <span
-          aria-hidden="true"
-          className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-black/60 text-white"
-        >
-          <StackedPhotosIcon />
-        </span>
-      ) : null}
+      {!cover ? (
+        // A templated text post — the template IS the post's visual cover,
+        // showing its title, exactly like a photo cover shows the photo.
+        // The headline below (in PostCard itself) is skipped for these so
+        // the title never appears twice.
+        <TextPostVisual template={post.textTemplate!} text={getDisplayTitle(post)} size="card" />
+      ) : cover.type === "video" ? (
+        <PostVideoTile src={cover.url} className="aspect-[4/5]" />
+      ) : (
+        <>
+          <DemoPhoto
+            src={cover.url}
+            alt={getDisplayTitle(post)}
+            className="w-full"
+            style={{ aspectRatio: resolveImageAspectRatio(cover.aspectRatio) }}
+          />
+          {post.media.length > 1 ? (
+            <span
+              aria-hidden="true"
+              className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-black/60 text-white"
+            >
+              <StackedPhotosIcon />
+            </span>
+          ) : null}
+        </>
+      )}
+      {/* View counting itself always runs regardless of ownership (see the
+          effect below) — this only controls who's ALLOWED to SEE the
+          number, same private-to-the-author visibility as a private
+          analytics stat. */}
+      {isOwner ? <ViewCountBadge post={post} /> : null}
     </div>
   );
 }
@@ -132,6 +172,13 @@ function PostCardAuthor({ post }: { post: Post }) {
 export default function PostCard({ post, homeOriginated = false, trackViewportSeen = false }: PostCardProps) {
   const { user } = useAuth();
   const articleRef = useRef<HTMLElement>(null);
+  // The one central place this is decided — not a route-specific prop, so
+  // it's correct everywhere PostCard renders (Home/Explore, Following,
+  // Maps, Me, a public profile, Search, Tag, Map cluster) with no per-page
+  // wiring. Determines only whether the view-count badge is SHOWN below;
+  // view tracking itself (both effects) runs unconditionally regardless of
+  // ownership.
+  const isOwner = Boolean(user && post.userId && user.id === post.userId);
 
   // Fires only on a real click on this link — never on mount, refresh, or a
   // ?postId= deep link, since those never trigger a click event here at
@@ -169,13 +216,39 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
     return () => observer.disconnect();
   }, [trackViewportSeen, post.id]);
 
+  // Persistent view counting — every card, every feed (not Explore-only; a
+  // completely separate observer/threshold/backing-store from the seen-
+  // tracker above, per its own doc comment). Unlike that tracker, this one
+  // is NEVER disconnected after a hit: only acting on entry.isIntersecting
+  // means remaining above 30% can't repeatedly fire (the browser only
+  // invokes this callback on an actual threshold crossing), but leaving and
+  // later re-entering the viewport correctly counts another view.
+  useEffect(() => {
+    const node = articleRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            incrementPostView(post.id);
+          }
+        }
+      },
+      { threshold: VIEW_COUNT_THRESHOLD },
+    );
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [post.id]);
+
   return (
     <article
       ref={articleRef}
       className="mb-2.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(55,45,35,0.06),0_6px_16px_rgba(55,45,35,0.05)]"
     >
       <Link href={homeOriginated ? `/post/${post.id}?from=home` : `/post/${post.id}`} onClick={handleOpen}>
-        <PostCardMedia post={post} />
+        <PostCardMedia post={post} isOwner={isOwner} />
 
         {/* The templated-text cover above already shows the title — repeating
             it here would be a literal duplicate, not a supporting caption. */}

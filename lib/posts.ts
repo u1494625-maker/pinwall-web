@@ -97,6 +97,7 @@ function rowToPost(row: PostRow): Post {
     likeCount: 0,
     saveCount: 0,
     commentCount: 0,
+    viewCount: 0,
     viewerHasLiked: false,
     viewerHasSaved: false,
   };
@@ -114,18 +115,19 @@ type PostEngagementRow = {
   like_count: number;
   save_count: number;
   comment_count: number;
+  view_count: number;
   viewer_has_liked: boolean;
   viewer_has_saved: boolean;
 };
 
 /**
- * Attaches real likeCount/saveCount/commentCount/viewerHasLiked/
+ * Attaches real likeCount/saveCount/commentCount/viewCount/viewerHasLiked/
  * viewerHasSaved to an already-fetched batch of posts via ONE additional RPC
  * call keyed on their ids — never one call per post (no N+1), and never a
  * raw liker/saver ID list shipped to the client (see
- * supabase/interactions.sql and supabase/comments.sql's get_post_engagement
- * for why this is a separate RPC rather than embedded directly in the posts
- * query).
+ * supabase/interactions.sql, supabase/comments.sql, and
+ * supabase/post_views.sql's get_post_engagement for why this is a separate
+ * RPC rather than embedded directly in the posts query).
  */
 async function attachEngagement(posts: Post[]): Promise<Post[]> {
   if (posts.length === 0) return posts;
@@ -151,6 +153,7 @@ async function attachEngagement(posts: Post[]): Promise<Post[]> {
       likeCount: engagement.like_count,
       saveCount: engagement.save_count,
       commentCount: engagement.comment_count,
+      viewCount: engagement.view_count,
       viewerHasLiked: engagement.viewer_has_liked,
       viewerHasSaved: engagement.viewer_has_saved,
     };

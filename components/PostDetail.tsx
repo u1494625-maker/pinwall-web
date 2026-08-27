@@ -13,7 +13,16 @@ import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { deleteComment, getCommentsForPost, type Comment } from "@/lib/comments";
 import { saveHomeRoute } from "@/lib/homeRoute";
-import { followUser, likePost, savePost, unfollowUser, unlikePost, unsavePost, useIsFollowing } from "@/lib/interactions";
+import {
+  followUser,
+  incrementPostView,
+  likePost,
+  savePost,
+  unfollowUser,
+  unlikePost,
+  unsavePost,
+  useIsFollowing,
+} from "@/lib/interactions";
 import { hasValidMapLocation } from "@/lib/map/viewport";
 import { formatRelativeDate, getDisplayTitle } from "@/lib/postDisplay";
 import { isCurrentUserAdmin } from "@/lib/admin";
@@ -259,6 +268,12 @@ export default function PostDetail({
       if (!cancelled) {
         setFetchedPost(result);
         setLoading(false);
+        // Counts one view per real open — this effect only runs again for a
+        // genuinely different postId (or a fresh mount of this page), never
+        // for an ordinary rerender, so this can't double-count.
+        if (result) {
+          incrementPostView(result.id);
+        }
       }
     }
 

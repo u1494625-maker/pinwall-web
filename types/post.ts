@@ -59,11 +59,14 @@ export type Post = {
    *  at publish time — the same template applies to every visual page a
    *  long caption paginates into (see lib/textPagination.ts). */
   textTemplate?: TextTemplateId;
-  /** Real aggregates from post_likes/post_saves/comments, fetched via the
-   *  get_post_engagement RPC — never a raw liker/saver ID list. */
+  /** Real aggregates from post_likes/post_saves/comments/posts.view_count,
+   *  fetched via the get_post_engagement RPC — never a raw liker/saver ID
+   *  list. viewCount is never deduplicated by user/session — see
+   *  supabase/post_views.sql and lib/interactions.ts's incrementPostView. */
   likeCount: number;
   saveCount: number;
   commentCount: number;
+  viewCount: number;
   /** Whether the currently signed-in viewer has liked/saved this post.
    *  Always false for a signed-out viewer. */
   viewerHasLiked: boolean;
