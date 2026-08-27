@@ -36,18 +36,33 @@ const TAP_MAX_MOVEMENT_PX = 12;
  * completely unaffected. Exported so PostFullscreenGallery can reuse it for
  * its own tap-to-close, matching this codebase's existing pattern of
  * exporting a small shared hook alongside its main component.
+ *
+ * Ignores any gesture where more than one pointer was ever down at once —
+ * without this, a second finger touching down mid-pinch would silently
+ * overwrite the tracked start point, and a quick two-finger pinch could
+ * read back as a small enough net movement to register as a tap (closing
+ * PostFullscreenGallery, or opening it, mid-gesture).
  */
 export function usePointerTap(onTap: () => void) {
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  const activePointerCountRef = useRef(0);
+  const multiTouchRef = useRef(false);
 
   function onPointerDown(event: PointerEvent) {
+    activePointerCountRef.current += 1;
+    if (activePointerCountRef.current > 1) {
+      multiTouchRef.current = true;
+      return;
+    }
+    multiTouchRef.current = false;
     startRef.current = { x: event.clientX, y: event.clientY };
   }
 
   function onPointerUp(event: PointerEvent) {
+    activePointerCountRef.current = Math.max(0, activePointerCountRef.current - 1);
     const start = startRef.current;
     startRef.current = null;
-    if (!start) return;
+    if (multiTouchRef.current || !start) return;
     const dx = Math.abs(event.clientX - start.x);
     const dy = Math.abs(event.clientY - start.y);
     if (dx < TAP_MAX_MOVEMENT_PX && dy < TAP_MAX_MOVEMENT_PX) {
@@ -205,9 +220,19 @@ function PhotoGallery({
     }
   }
 
+  // currentIndex is the one authoritative index — this is the single place
+  // an EXTERNAL change (fullscreen's own swipe) is reconciled back into it,
+  // and it's also the only place that needs to force this gallery's own
+  // scroll position to match: the normal gallery is hidden behind
+  // fullscreen's opaque dialog/backdrop while this fires, so there's no
+  // live user drag on THIS element to fight. (handleScroll, above, is the
+  // opposite direction — a live drag on this element updating currentIndex
+  // to match — so it deliberately never writes scrollLeft back.)
   function handleFullscreenIndexChange(index: number) {
     setCurrentIndex(index);
     onActiveMediaChange?.(media[index]);
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = index * el.clientWidth;
   }
 
   return (

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import { usePointerTap } from "@/components/PostMediaGallery";
+import { useZoomPan } from "@/lib/useZoomPan";
 import type { PostMedia } from "@/types/post";
 
 type PostFullscreenGalleryProps = {
@@ -17,6 +18,22 @@ type PostFullscreenGalleryProps = {
    *  omit for a single-photo post, where there's nothing to sync back. */
   onIndexChange?: (index: number) => void;
 };
+
+/**
+ * One slide, pinch-zoom/pan-capable via useZoomPan — only the currently-
+ * active (visible) slide is ever actually touchable, so `active` both gates
+ * the gesture and resets scale/translate back to 1/0/0 the moment this
+ * slide stops being current (swiped away, or a fresh dialog instance on
+ * reopen, since PostFullscreenGallery remounts via its own key prop).
+ */
+function ZoomableSlide({ item, active, alt }: { item: PostMedia; active: boolean; alt: string }) {
+  const zoomRef = useZoomPan({ active });
+  return (
+    <div ref={zoomRef} className="h-full w-full shrink-0 snap-start snap-always">
+      <DemoPhoto src={item.url} alt={alt} fit="contain" placeholderClassName="bg-black" className="size-full" />
+    </div>
+  );
+}
 
 /**
  * Built on the native <dialog> element, matching this app's existing
@@ -110,15 +127,12 @@ export default function PostFullscreenGallery({
         className="no-scrollbar flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain bg-black"
       >
         {media.map((item, index) => (
-          <div key={item.id} className="h-full w-full shrink-0 snap-start snap-always">
-            <DemoPhoto
-              src={item.url}
-              alt={`${title} — photo ${index + 1} of ${media.length}`}
-              fit="contain"
-              placeholderClassName="bg-black"
-              className="size-full"
-            />
-          </div>
+          <ZoomableSlide
+            key={item.id}
+            item={item}
+            active={index === currentIndex}
+            alt={`${title} — photo ${index + 1} of ${media.length}`}
+          />
         ))}
       </div>
       {media.length > 1 ? (
