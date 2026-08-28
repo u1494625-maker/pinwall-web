@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
@@ -83,7 +84,15 @@ export default function LoginScreen() {
       </button>
 
       <p className="mt-8 max-w-xs text-[11px] leading-5 text-stone-400">
-        By continuing, you agree to the Terms of Service and Privacy Policy.
+        By continuing, you agree to the{" "}
+        <Link href="/terms" className="font-semibold text-stone-500 underline">
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="font-semibold text-stone-500 underline">
+          Privacy Policy
+        </Link>
+        .
       </p>
     </main>
   );
