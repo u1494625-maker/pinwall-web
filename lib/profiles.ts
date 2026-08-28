@@ -84,20 +84,31 @@ export async function getProfilesByUserIds(userIds: string[]): Promise<Map<strin
 const SEARCH_RESULTS_LIMIT = 20;
 
 /** Real Pinwall users whose display name contains `query` (case-insensitive),
- *  excluding `excludeUserId` (the searching user themselves) — used by the
- *  New Message screen. Returns [] immediately, with no query at all, for a
- *  blank search. */
-export async function searchProfiles(query: string, excludeUserId: string): Promise<Profile[]> {
+ *  optionally excluding `excludeUserId` (the searching user themselves, when
+ *  there is one) — used by the New Message screen and Search's own Users
+ *  tab. `excludeUserId` is optional specifically for Search: neither /search
+ *  nor a profile page require sign-in, so a signed-out visitor (with no id
+ *  of their own to exclude) can still search. Deliberately does not filter
+ *  by block state — profiles.sql's own SELECT policy never has, on purpose,
+ *  so a blocked user's profile stays discoverable (e.g. to unblock them);
+ *  see supabase/blocking.sql's own doc comment. Returns [] immediately, with
+ *  no query at all, for a blank search. */
+export async function searchProfiles(query: string, excludeUserId?: string): Promise<Profile[]> {
   const trimmed = query.trim();
   if (trimmed.length === 0 || !isSupabaseConfigured) return [];
 
-  const { data, error } = await supabase
+  let request = supabase
     .from("profiles")
     .select(PROFILE_COLUMNS)
     .ilike("display_name", `%${trimmed}%`)
-    .neq("id", excludeUserId)
     .order("display_name", { ascending: true })
     .limit(SEARCH_RESULTS_LIMIT);
+
+  if (excludeUserId) {
+    request = request.neq("id", excludeUserId);
+  }
+
+  const { data, error } = await request;
 
   if (error) {
     console.error("Failed to search profiles from Supabase:", error.message);
