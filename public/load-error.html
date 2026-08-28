@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Kavanaka</title>
+    <style>
+      /* Deliberately no external font/asset requests here -- this page
+         exists specifically for the case where the network wasn't
+         reachable a moment ago, so it must render correctly with zero
+         dependencies of its own. */
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #fbfaf7;
+        color: #191a16;
+        font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .wordmark {
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: -0.06em;
+        margin: 0 0 12px;
+      }
+      .wordmark .dot {
+        color: #b7d916;
+      }
+      p {
+        margin: 0 0 24px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #57534e;
+        max-width: 280px;
+      }
+      button {
+        appearance: none;
+        border: none;
+        border-radius: 9999px;
+        background: #191a16;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 12px 28px;
+        font-family: inherit;
+      }
+      button:active {
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="wordmark">Kavanaka<span class="dot">.</span></p>
+    <p>Couldn&rsquo;t connect. This usually resolves itself in a moment &mdash; tap below to try again.</p>
+    <button id="retry-button" type="button">Retry</button>
+
+    <script>
+      // Kept in sync by hand with capacitor.config.ts's server.url -- a
+      // static file in webDir can't import that config directly (no build
+      // step runs over public/), so this is the one other place that URL
+      // is written. Update both together if it ever changes.
+      var REAL_APP_URL = "https://pinwall-web.vercel.app";
+
+      // At most ONE automatic retry per app session, never a loop or
+      // polling. This page is only ever reached via Capacitor's own
+      // errorPath mechanism after the real app failed to load (see
+      // capacitor.config.ts) -- typically because iOS's first-launch
+      // network-permission prompt briefly delayed connectivity. A single
+      // short delayed retry silently recovers that common case; if it
+      // fails again, this flag prevents a second automatic attempt on any
+      // further visit to this same page within the session, leaving only
+      // the manual Retry button above.
+      var RETRY_FLAG_KEY = "kavanaka_load_error_auto_retried";
+      var AUTO_RETRY_DELAY_MS = 2000;
+
+      function goToApp() {
+        window.location.href = REAL_APP_URL;
+      }
+
+      document.getElementById("retry-button").addEventListener("click", goToApp);
+
+      var alreadyAutoRetried = false;
+      try {
+        alreadyAutoRetried = sessionStorage.getItem(RETRY_FLAG_KEY) === "1";
+      } catch (e) {
+        // Storage unavailable -- fall back to manual-only, never guess.
+        alreadyAutoRetried = true;
+      }
+
+      if (!alreadyAutoRetried) {
+        try {
+          sessionStorage.setItem(RETRY_FLAG_KEY, "1");
+        } catch (e) {
+          // If we can't record the attempt, don't risk an unbounded retry
+          // later -- skip the automatic attempt entirely and rely on the
+          // manual button only.
+          alreadyAutoRetried = true;
+        }
+        if (!alreadyAutoRetried) {
+          setTimeout(goToApp, AUTO_RETRY_DELAY_MS);
+        }
+      }
+    </script>
+  </body>
+</html>
