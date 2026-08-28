@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import PostCard from "@/components/PostCard";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { blockUser, unblockUser, useBlockState } from "@/lib/blocks";
 import { followUser, getProfileStats, unfollowUser, useIsFollowing, type ProfileStats } from "@/lib/interactions";
 import { getOrCreateConversation } from "@/lib/messages";
 import { getPostsByUserIds } from "@/lib/posts";
@@ -40,6 +41,12 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
   const [followOverride, setFollowOverride] = useState<boolean | null>(null);
   const [isOpeningConversation, setIsOpeningConversation] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const { blockedByMe: blockedByMeFromQuery, blockedByThem } = useBlockState(userId);
+  // Only ever overrides blockedByMe — blockedByThem isn't something this
+  // viewer's own actions can change, same reasoning as followOverride.
+  const [blockedByMeOverride, setBlockedByMeOverride] = useState<boolean | null>(null);
+  const [confirmingBlock, setConfirmingBlock] = useState(false);
+  const [blockError, setBlockError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +55,9 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
       setProfileLoading(true);
       setPostsLoading(true);
       setFollowOverride(null);
+      setBlockedByMeOverride(null);
+      setConfirmingBlock(false);
+      setBlockError(null);
 
       getProfile(userId).then((result) => {
         if (!cancelled) {
@@ -77,6 +87,37 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
 
   const isOwnProfile = Boolean(user && user.id === userId);
   const isFollowing = followOverride ?? isFollowingFromQuery;
+  const blockedByMe = blockedByMeOverride ?? blockedByMeFromQuery;
+  // Mutual — mirrors is_blocked_pair's own symmetric check: Follow/Message
+  // are hidden regardless of which side did the blocking.
+  const isBlockedEitherWay = blockedByMe || blockedByThem;
+
+  async function handleBlock() {
+    if (!user) return;
+    setBlockError(null);
+    try {
+      await blockUser(user.id, userId);
+      setBlockedByMeOverride(true);
+      setConfirmingBlock(false);
+      // A block is mutually exclusive with following — clears any stale
+      // "Following" state this viewer had shown locally, matching what the
+      // database itself would now report on a fresh load.
+      setFollowOverride(false);
+    } catch (err) {
+      setBlockError(err instanceof Error ? err.message : "Couldn't block this user. Try again.");
+    }
+  }
+
+  async function handleUnblock() {
+    if (!user) return;
+    setBlockError(null);
+    try {
+      await unblockUser(user.id, userId);
+      setBlockedByMeOverride(false);
+    } catch (err) {
+      setBlockError(err instanceof Error ? err.message : "Couldn't unblock this user. Try again.");
+    }
+  }
 
   async function handleToggleFollow() {
     if (!user) {
@@ -147,7 +188,28 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
           </div>
         </div>
 
-        {!isOwnProfile ? (
+        {!isOwnProfile && isBlockedEitherWay ? (
+          <div className="px-4 pt-4">
+            <p className="rounded-xl bg-stone-100 py-2.5 text-center text-sm font-semibold text-stone-500">
+              You can&apos;t interact with this account.
+            </p>
+            {blockError ? <p className="mt-2 text-center text-xs font-semibold text-red-600">{blockError}</p> : null}
+            {/* Only the blocker sees Unblock — the other direction has no
+                row of their own to remove (see useBlockState's own doc
+                comment). */}
+            {blockedByMe ? (
+              <button
+                type="button"
+                onClick={handleUnblock}
+                className="mt-2.5 block w-full text-center text-sm font-semibold text-stone-500"
+              >
+                Unblock
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!isOwnProfile && !isBlockedEitherWay ? (
           <div className="px-4 pt-4">
             <div className="flex gap-2.5">
               <button
@@ -171,6 +233,31 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
               </button>
             </div>
             {messageError ? <p className="mt-2 text-center text-xs font-semibold text-red-600">{messageError}</p> : null}
+            {blockError ? <p className="mt-2 text-center text-xs font-semibold text-red-600">{blockError}</p> : null}
+
+            {confirmingBlock ? (
+              <div className="mt-2.5 flex items-center justify-center gap-3">
+                <span className="text-xs text-stone-500">Block this user?</span>
+                <button type="button" onClick={handleBlock} className="text-xs font-bold text-red-600">
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingBlock(false)}
+                  className="text-xs font-semibold text-stone-500"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingBlock(true)}
+                className="mt-2.5 block w-full text-center text-sm font-semibold text-stone-400"
+              >
+                Block user
+              </button>
+            )}
           </div>
         ) : null}
 

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
+import DeleteAccountSheet from "@/components/profile/DeleteAccountSheet";
 import ImageCropModal from "@/components/profile/ImageCropModal";
 import { PROFILE_HEADER_ASPECT } from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -32,6 +33,10 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
   const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
+  // Bumped on every open so DeleteAccountSheet remounts with fresh internal
+  // state each time — same pattern as PostManageSheet's manageSheetKey.
+  const [deleteSheetKey, setDeleteSheetKey] = useState(0);
 
   function handleFileSelected(target: CropTarget) {
     return (event: ChangeEvent<HTMLInputElement>) => {
@@ -101,6 +106,17 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
       setIsSaving(false);
     }
+  }
+
+  // Only ever called after the server has confirmed the account is
+  // actually gone (DeleteAccountSheet's onDeleted) — never speculatively.
+  // Explicit push to "/" rather than relying on RequireAuth's own reactive
+  // sign-out fallback: that would land on the sign-in screen, which reads
+  // like "please sign back in" right after intentionally leaving, not the
+  // clean "you're signed out" landing this is meant to be.
+  async function handleAccountDeleted() {
+    await signOut();
+    router.push("/");
   }
 
   return (
@@ -221,9 +237,19 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
 
         {error ? <p className="mt-4 text-center text-xs font-semibold text-red-600">{error}</p> : null}
 
-        <div className="mt-8 border-t border-stone-100 pt-5 text-center">
+        <div className="mt-8 space-y-3 border-t border-stone-100 pt-5 text-center">
           <button type="button" onClick={() => signOut()} className="text-sm font-semibold text-stone-500">
             Log out
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteSheetKey((key) => key + 1);
+              setDeleteSheetOpen(true);
+            }}
+            className="block w-full text-sm font-semibold text-red-600"
+          >
+            Delete account
           </button>
         </div>
       </div>
@@ -237,6 +263,13 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
           onCropped={handleCropped}
         />
       ) : null}
+
+      <DeleteAccountSheet
+        key={deleteSheetKey}
+        open={deleteSheetOpen}
+        onClose={() => setDeleteSheetOpen(false)}
+        onDeleted={handleAccountDeleted}
+      />
     </main>
   );
 }
