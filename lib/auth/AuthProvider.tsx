@@ -17,6 +17,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -110,12 +111,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // Mirrors signInWithGoogle exactly — same native/web branching, same
+  // redirect constant, same appUrlOpen listener above handles the callback
+  // for either provider unchanged (it keys off the redirect URL prefix and
+  // token presence, never the provider itself).
+  async function signInWithApple() {
+    if (Capacitor.isNativePlatform()) {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "apple",
+        options: { redirectTo: NATIVE_OAUTH_REDIRECT_URL, skipBrowserRedirect: true },
+      });
+      if (!error && data.url) {
+        await Browser.open({ url: data.url });
+      }
+      return;
+    }
+
+    await supabase.auth.signInWithOAuth({
+      provider: "apple",
+      options: { redirectTo: window.location.href },
+    });
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInWithApple, signOut }}>
       {children}
     </AuthContext.Provider>
   );
