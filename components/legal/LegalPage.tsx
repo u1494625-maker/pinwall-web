@@ -3,7 +3,10 @@ import type { ReactNode } from "react";
 
 type LegalPageProps = {
   title: string;
-  effectiveDate: string;
+  /** Omit for a non-versioned page (e.g. Support) that has no "effective
+   *  date" concept — Privacy/Terms both still pass a real date and are
+   *  unaffected. */
+  effectiveDate?: string;
   children: ReactNode;
 };
 
@@ -45,7 +48,7 @@ export default function LegalPage({ title, effectiveDate, children }: LegalPageP
           [&_p]:mt-3 [&_ul]:mt-3 [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5
           [&_a]:font-semibold [&_a]:text-kavanaka-green [&_a]:underline"
       >
-        <p className="text-xs font-semibold text-stone-400">Effective {effectiveDate}</p>
+        {effectiveDate ? <p className="text-xs font-semibold text-stone-400">Effective {effectiveDate}</p> : null}
         {children}
       </article>
     </main>
