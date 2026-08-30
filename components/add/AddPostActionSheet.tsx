@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type SyntheticEvent } from "react";
+import { VIDEO_EXTENSIONS } from "@/lib/mediaComposer";
+import { setPendingCapture } from "@/lib/pendingCapture";
+import { ALLOWED_MEDIA_TYPES } from "@/lib/storage";
 
 export type AddPostChoice = "album" | "camera" | "text";
 
@@ -25,6 +28,13 @@ const CLOSE_ANIMATION_MS = 200;
  */
 export default function AddPostActionSheet({ open, onClose, onChoose }: AddPostActionSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // Deliberately kept inside this <dialog> (not lifted to a parent like
+  // BottomNav) — showModal() makes everything outside the dialog inert, so
+  // triggering a hidden input from outside it would risk an extra
+  // iOS/WebKit interaction edge case. Living here keeps the "Camera" tap
+  // and the input's own .click() in the same active modal/user-gesture
+  // context.
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   // Tracks whether this open-cycle has had a chance to paint in its hidden
   // position before flipping to visible, so the slide-up actually animates
   // instead of popping straight into place.
@@ -68,6 +78,32 @@ export default function AddPostActionSheet({ open, onClose, onChoose }: AddPostA
     onClose();
   }
 
+  // "Camera" doesn't call onChoose on tap like the other two options do --
+  // it must synchronously trigger the hidden capture input first (same
+  // click handler, same user-gesture context WebKit requires), and only
+  // hand off to onChoose once a real File comes back. Navigating before
+  // that would abandon the WKWebView picker mid-flight.
+  function handleOptionClick(choice: AddPostChoice) {
+    if (choice === "camera") {
+      cameraInputRef.current?.click();
+      return;
+    }
+    onChoose(choice);
+  }
+
+  // Do not assume iOS always fires `change` with an empty FileList on
+  // cancel -- some cancellation paths never fire it at all. Either way,
+  // simply not calling onChoose is enough: no File means nothing happens,
+  // the sheet stays exactly as it was (open, on top of nothing), and the
+  // user can choose Camera again, Album, Text, or Cancel.
+  function handleCameraCapture(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // allow capturing again later without stale state
+    if (!file) return;
+    setPendingCapture(file);
+    onChoose("camera");
+  }
+
   return (
     <dialog
       ref={dialogRef}
@@ -87,7 +123,7 @@ export default function AddPostActionSheet({ open, onClose, onChoose }: AddPostA
             <button
               key={option.choice}
               type="button"
-              onClick={() => onChoose(option.choice)}
+              onClick={() => handleOptionClick(option.choice)}
               className="flex w-full flex-col items-center rounded-2xl px-4 py-4 text-center transition-colors hover:bg-stone-50 active:bg-stone-100"
             >
               <span className="text-base font-semibold text-stone-900">{option.label}</span>
@@ -97,6 +133,18 @@ export default function AddPostActionSheet({ open, onClose, onChoose }: AddPostA
             </button>
           ))}
         </div>
+
+        {/* Hidden, camera-forced capture input for the "Camera" option above --
+            same accept list as MediaComposerFields' own combined photo/video
+            input, so the OS offers exactly the same file types either way. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept={`${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif,${VIDEO_EXTENSIONS.join(",")}`}
+          capture="environment"
+          onChange={handleCameraCapture}
+          className="hidden"
+        />
 
         <div className="mt-1 border-t border-stone-100 p-3">
           <button

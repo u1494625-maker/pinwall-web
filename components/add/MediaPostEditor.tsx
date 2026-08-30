@@ -16,6 +16,7 @@ import {
   type ComposerDraft,
 } from "@/lib/composerDraft";
 import { useMediaComposer, type MediaComposerItem } from "@/lib/mediaComposer";
+import { takePendingCapture } from "@/lib/pendingCapture";
 import { measureImageAspectRatio } from "@/lib/postDisplay";
 import { addPost, type NewPostMediaInput } from "@/lib/posts";
 import {
@@ -107,6 +108,7 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     isConvertingHeic,
     showAddMoreTile,
     handleMediaChange,
+    handleMediaFiles,
     handleRemoveMedia,
     handleMoveMedia,
     handleToggleShowOnMap,
@@ -121,16 +123,33 @@ export default function MediaPostEditor({ initialSource }: MediaPostEditorProps)
     handleRemoveVideo,
   } = composer;
 
-  // Auto-open the picker once on arrival, matching how the user got here from
-  // the action sheet — doesn't request camera permission itself; the browser's
-  // own file-picker UI decides whether/how to offer the camera.
+  // Consumes a File already captured inside AddPostActionSheet (see
+  // lib/pendingCapture.ts) before this page ever mounted -- fed directly
+  // into handleMediaFiles, the same shared pipeline handleMediaChange's own
+  // <input onChange> delegates to, so mode-locking/HEIC/optimization/limits
+  // are never duplicated. Only ever attempted for initialSource === "camera"
+  // -- an "album" or direct/unspecified mount must never consume a stale
+  // pending camera File left over from an earlier flow. Falls back to the
+  // old auto-click when nothing was handed off (a direct/stale
+  // /add/media?source=camera visit) -- "album" behavior is unchanged.
   useEffect(() => {
     if (hasAutoOpenedRef.current) return;
-    if (initialSource === "album" || initialSource === "camera") {
-      hasAutoOpenedRef.current = true;
+    hasAutoOpenedRef.current = true;
+
+    if (initialSource === "camera") {
+      const pendingFile = takePendingCapture();
+      if (pendingFile) {
+        void handleMediaFiles([pendingFile]);
+        return;
+      }
+      fileInputRef.current?.click();
+      return;
+    }
+
+    if (initialSource === "album") {
       fileInputRef.current?.click();
     }
-  }, [initialSource, fileInputRef]);
+  }, [initialSource, fileInputRef, handleMediaFiles]);
 
   // Debounced autosave — text/settings only, never the local media Files
   // themselves (those aren't JSON-serializable and, more importantly,

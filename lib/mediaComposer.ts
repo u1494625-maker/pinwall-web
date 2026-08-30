@@ -261,10 +261,14 @@ export function useMediaComposer({
     };
   }, []);
 
-  async function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = ""; // allow re-selecting the same file(s) later
-    if (files.length === 0) return; // user canceled the picker — leave the editor as it was
+  // The single processing pipeline for any newly selected photo/video batch,
+  // regardless of source — the real <input>'s onChange (below) and a camera
+  // File handed off from AddPostActionSheet (see MediaPostEditor) both
+  // funnel through this one function, so mode-locking, HEIC conversion,
+  // optimization, size limits, and error messaging are never duplicated.
+  async function handleMediaFiles(inputFiles: File[] | FileList) {
+    const files = Array.from(inputFiles);
+    if (files.length === 0) return; // nothing to process — leave the editor as it was
 
     setError(null);
 
@@ -449,6 +453,14 @@ export function useMediaComposer({
     if (messages.length > 0) setError(messages.join(" "));
   }
 
+  // Thin <input onChange> adapter — reads the real FileList, clears the
+  // input for re-selection, and delegates to the shared pipeline above.
+  async function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files;
+    event.target.value = ""; // allow re-selecting the same file(s) later
+    await handleMediaFiles(files ?? []);
+  }
+
   function handleRemoveMedia(key: string) {
     const item = mediaItems.find((i) => i.key === key);
     if (item && item.kind === "new") URL.revokeObjectURL(item.previewUrl);
@@ -550,6 +562,7 @@ export function useMediaComposer({
     isConvertingHeic,
     showAddMoreTile,
     handleMediaChange,
+    handleMediaFiles,
     handleRemoveMedia,
     handleMoveMedia,
     handleToggleShowOnMap,
