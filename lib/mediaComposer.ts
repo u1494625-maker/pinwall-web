@@ -453,12 +453,14 @@ export function useMediaComposer({
     if (messages.length > 0) setError(messages.join(" "));
   }
 
-  // Thin <input onChange> adapter — reads the real FileList, clears the
-  // input for re-selection, and delegates to the shared pipeline above.
+  // Thin <input onChange> adapter — snapshots the FileList into a real
+  // array BEFORE clearing the input, not after: clearing `.value` can
+  // invalidate a still-referenced FileList, so converting first is what
+  // guarantees the files actually reach handleMediaFiles.
   async function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = event.target.files;
+    const files = Array.from(event.target.files ?? []);
     event.target.value = ""; // allow re-selecting the same file(s) later
-    await handleMediaFiles(files ?? []);
+    await handleMediaFiles(files);
   }
 
   function handleRemoveMedia(key: string) {
