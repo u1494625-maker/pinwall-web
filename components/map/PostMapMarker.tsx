@@ -9,50 +9,51 @@ type PostMapMarkerProps = {
    *  per-photo-located item this is that specific photo instead. Undefined
    *  for text posts. */
   cover: PostMedia | undefined;
-  /** Already resolved (e.g. via getDisplayTitle) — this component doesn't
-   *  handle a missing title. Shown as the label below the marker for every
-   *  case except a templated text post, whose visual cover already shows it. */
+  /** Used only as this image's alt text — the marker never renders a
+   *  permanent title label itself (see MapPage's SelectedPostPreview for
+   *  where the full title actually shows, once this post is selected). */
   title: string;
-  /** True for the post targeted via "View on Map" — a lightweight visual cue only, not a redesign. */
-  highlighted?: boolean;
+  /** True for the single post currently emphasized on the map — either the
+   *  "View on Map" deep-link target or whichever marker the user just
+   *  tapped (MapPage unifies both into one concept, one visual treatment). */
+  selected?: boolean;
   /** Set only for a templated text post (media.length === 0 && textTemplate
-   *  exists) — pre-resolved by the caller (MapPage.tsx passes getDisplayTitle(post),
-   *  the same value as `title`) so this component stays purely presentational.
-   *  Left undefined for a media post or a legacy text post with no template,
-   *  in which case the generic pencil placeholder still renders. */
+   *  exists) — pre-resolved by the caller so this component stays purely
+   *  presentational. Left undefined for a media post or a legacy text post
+   *  with no template, in which case the generic pencil placeholder renders. */
   textTemplate?: TextTemplateId;
 };
 
 /**
  * Rendered to a static HTML string (via renderToStaticMarkup) and mounted as a
  * Leaflet divIcon, so this must stay presentational only — no hooks, no
- * handlers. `highlighted`'s pulse relies on the plain CSS `animate-ping`
+ * handlers. `selected`'s pulse relies on the plain CSS `animate-ping`
  * utility, which still works in static markup since no JS/React is involved
  * in the animation. TextPostVisual and VideoFirstFramePreview are equally
- * hook-free, so the same mechanism covers them — a muted, non-autoplaying
- * <video> behaves identically whether React mounted it or Leaflet injected
- * its markup via innerHTML, since `muted` reflects straight from parsed
- * HTML into the real DOM property (see VideoFirstFramePreview's own doc
- * comment).
+ * hook-free, so the same mechanism covers them.
+ *
+ * Deliberately no title label of any kind, selected or not — a compact
+ * thumbnail is the whole marker. Tapping a marker selects it (MapPage shows
+ * the post's title/location/time/Helpful count in a bottom preview card
+ * instead of ever attaching that text to the pin itself), so nothing here
+ * needs to reserve space for wrapped text anymore.
  */
-export default function PostMapMarker({ cover, title, highlighted = false, textTemplate }: PostMapMarkerProps) {
-  const isTemplatedText = Boolean(textTemplate);
-
+export default function PostMapMarker({ cover, title, selected = false, textTemplate }: PostMapMarkerProps) {
   return (
-    <div className="flex w-20 flex-col items-center pb-1.5">
+    <div className="w-20">
       <div className="relative w-full">
-        {highlighted ? (
-          <span className="absolute -inset-1.5 animate-ping rounded-xl bg-kavanaka-aqua/50" />
+        {selected ? (
+          <span className="absolute -inset-1.5 animate-ping rounded-xl bg-kavanaka-green/50" />
         ) : null}
         <div
-          className={`relative overflow-hidden rounded-xl border-2 bg-white shadow-lg ${
-            highlighted ? "border-kavanaka-aqua ring-2 ring-kavanaka-aqua/40" : "border-white"
+          className={`relative overflow-hidden rounded-xl border-2 bg-white shadow-lg transition-transform ${
+            selected ? "scale-110 border-kavanaka-green ring-2 ring-kavanaka-green/40" : "border-white"
           }`}
         >
           {cover?.type === "image" ? (
             <DemoPhoto src={cover.url} alt={title} className="aspect-square w-full" />
           ) : cover?.type === "video" ? (
-            <div className="relative aspect-square w-full bg-stone-900">
+            <div className="relative aspect-square w-full bg-kavanaka-ink">
               <VideoFirstFramePreview src={cover.url} className="size-full object-cover" />
               <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
                 <span className="grid size-6 place-items-center rounded-full bg-white/90 text-xs text-stone-900">▶</span>
@@ -67,18 +68,6 @@ export default function PostMapMarker({ cover, title, highlighted = false, textT
           )}
         </div>
       </div>
-      {/* A templated text post's cover already shows the title — a second
-          label below would be a literal duplicate, so it's the only case
-          this is skipped. No line-clamp elsewhere: a title never gets
-          silently cut off here — bounded instead by TitleField's own
-          40-char input cap plus a deliberately moderate max-width, so a
-          long title wraps to a few short lines rather than either hiding
-          text or growing without limit. */}
-      {!isTemplatedText ? (
-        <span className="mt-1 max-w-[6.5rem] rounded-lg bg-white/95 px-2 py-0.5 text-center text-[10px] font-bold leading-tight text-stone-900 shadow">
-          {title}
-        </span>
-      ) : null}
     </div>
   );
 }

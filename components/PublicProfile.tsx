@@ -175,6 +175,10 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
       <div className="relative rounded-t-3xl bg-[#fbfaf7] pt-11">
         <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
           <div className="text-center">
+            <p className="text-base font-black text-stone-900">{posts.length}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Posts</p>
+          </div>
+          <div className="text-center">
             <p className="text-base font-black text-stone-900">{stats.followingCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Following</p>
           </div>
@@ -183,8 +187,8 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
             <p className="text-[11px] font-semibold text-stone-500">Followers</p>
           </div>
           <div className="text-center">
-            <p className="text-base font-black text-stone-900">{stats.likesAndSavesCount}</p>
-            <p className="text-[11px] font-semibold text-stone-500">Helpful + Saves</p>
+            <p className="text-base font-black text-stone-900">{posts.reduce((sum, post) => sum + post.likeCount, 0)}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Helpful</p>
           </div>
         </div>
 
@@ -265,15 +269,15 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
           <h2 className="text-sm font-black text-stone-900">Posts</h2>
         </div>
 
-        <div className="p-3">
+        <div className="pt-3">
           {postsLoading ? (
-            <div className="columns-2 gap-2">
+            <div className="columns-2 gap-2.5 px-3">
               {[0, 1, 2, 3].map((key) => (
-                <div key={key} className="mb-2 h-40 animate-pulse rounded-2xl bg-stone-200" />
+                <div key={key} className="mb-2.5 h-40 animate-pulse rounded-2xl bg-stone-200" />
               ))}
             </div>
           ) : posts.length > 0 ? (
-            <div className="columns-2 gap-2">
+            <div className="columns-2 gap-2.5 px-3">
               {posts.map((post) => (
                 <PostCard key={post.id} post={post} />
               ))}

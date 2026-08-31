@@ -40,7 +40,7 @@ const categories = [
     countKey: "followCount",
     label: "New followers",
     href: "/messages/followers",
-    accent: "bg-blue-100 text-blue-500",
+    accent: "bg-kavanaka-green/15 text-kavanaka-green",
     Icon: PersonIcon,
   },
   { countKey: "commentCount", label: "Comments", href: "/messages/comments", accent: "bg-kavanaka-aqua/15 text-kavanaka-aqua", Icon: ChatIcon },

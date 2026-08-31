@@ -65,6 +65,17 @@ function MeContent() {
     return <ProfileHeaderSkeleton />;
   }
 
+  // Same default-background test ProfileHeader itself uses, duplicated here
+  // only because headerActions renders outside ProfileHeader's own DOM (it's
+  // passed in as a plain ReactNode) — keeps the Edit Profile pill legible
+  // against either variant of the header background.
+  const hasPhoto = Boolean(profile.backgroundUrl || profile.avatarUrl);
+  // Helpful received across every post this user has authored — summed
+  // client-side from myPosts' own already-fetched likeCount (real-time via
+  // get_post_engagement), never a separate "Helpful + Saves" combined
+  // figure. Saves stay private, surfaced only via the existing Saved tab.
+  const helpfulCount = myPosts.reduce((sum, post) => sum + post.likeCount, 0);
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] shadow-[0_0_50px_rgba(50,40,30,0.08)]">
       <ProfileHeader
@@ -72,7 +83,11 @@ function MeContent() {
         headerActions={
           <Link
             href="/me/edit"
-            className="rounded-full bg-white/15 px-3 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm transition-colors hover:bg-white/25"
+            className={`rounded-full px-3 py-1 text-[11px] font-medium backdrop-blur-sm transition-colors ${
+              hasPhoto
+                ? "bg-white/15 text-white/90 hover:bg-white/25"
+                : "bg-kavanaka-ink/8 text-kavanaka-ink hover:bg-kavanaka-ink/15"
+            }`}
           >
             Edit Profile
           </Link>
@@ -81,6 +96,10 @@ function MeContent() {
 
       <div className="relative rounded-t-3xl bg-[#fbfaf7] pb-28 pt-11">
         <div className="flex items-center justify-around border-b border-stone-100 px-4 pb-4">
+          <div className="text-center">
+            <p className="text-base font-black text-stone-900">{myPosts.length}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Posts</p>
+          </div>
           <Link href="/me/following" className="text-center">
             <p className="text-base font-black text-stone-900">{stats.followingCount}</p>
             <p className="text-[11px] font-semibold text-stone-500">Following</p>
@@ -90,8 +109,8 @@ function MeContent() {
             <p className="text-[11px] font-semibold text-stone-500">Followers</p>
           </Link>
           <div className="text-center">
-            <p className="text-base font-black text-stone-900">{stats.likesAndSavesCount}</p>
-            <p className="text-[11px] font-semibold text-stone-500">Helpful + Saves</p>
+            <p className="text-base font-black text-stone-900">{helpfulCount}</p>
+            <p className="text-[11px] font-semibold text-stone-500">Helpful</p>
           </div>
         </div>
 
@@ -115,9 +134,9 @@ function MeContent() {
           })}
         </div>
 
-        <div className="p-3">
+        <div className="pt-3">
           {gridPosts.length > 0 ? (
-            <div className="columns-2 gap-2">
+            <div className="columns-2 gap-2.5 px-3">
               {gridPosts.map((post) => (
                 <PostCard key={post.id} post={post} />
               ))}

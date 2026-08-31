@@ -16,10 +16,10 @@ import { getPostsByUserIds, useAllPostsState } from "@/lib/posts";
 import { useExploreFeed } from "@/lib/recommendation/useExploreFeed";
 import type { Post } from "@/types/post";
 
-type HomeTab = "Following" | "Explore" | "Maps";
+type HomeTab = "Following" | "Explore" | "Nearby";
 
 const HOME_TAB_KEY = "pinwall_home_tab";
-const VALID_HOME_TABS: readonly HomeTab[] = ["Following", "Explore", "Maps"];
+const VALID_HOME_TABS: readonly HomeTab[] = ["Following", "Explore", "Nearby"];
 const DEFAULT_HOME_TAB: HomeTab = "Explore";
 
 function isValidHomeTab(value: string | null): value is HomeTab {
@@ -112,7 +112,7 @@ export default function PinWallHome() {
   const { user, loading } = useAuth();
   const { posts, loading: postsLoading } = useAllPostsState();
   const savedViewport = useSavedMapViewport();
-  // Explore only — Following/Maps below deliberately keep using `posts`
+  // Explore only — Following/Nearby below deliberately keep using `posts`
   // (unranked, chronological/bounds-filtered) unchanged.
   const {
     posts: exploreFeedPosts,
@@ -138,7 +138,7 @@ export default function PinWallHome() {
   }
 
   const isFollowingTab = selectedTab === "Following";
-  const isMapsTab = selectedTab === "Maps";
+  const isNearbyTab = selectedTab === "Nearby";
 
   const mapsFeedPosts = useMemo(
     () => (savedViewport?.bounds ? filterPostsInBounds(posts, savedViewport.bounds) : []),
@@ -225,7 +225,7 @@ export default function PinWallHome() {
             <p className="text-sm text-stone-500">Posts from people you follow will appear here.</p>
           </div>
         )
-      ) : isMapsTab ? (
+      ) : isNearbyTab ? (
         savedViewport?.bounds ? (
           postsLoading ? (
             <FeedSkeleton />

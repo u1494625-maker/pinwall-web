@@ -1,4 +1,4 @@
-const feedTabs = ["Following", "Explore", "Maps"];
+const feedTabs = ["Following", "Explore", "Nearby"];
 
 type CategoryChipsProps = {
   selectedTab: string;

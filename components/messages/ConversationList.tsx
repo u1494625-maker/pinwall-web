@@ -8,6 +8,14 @@ import { getConversations, type Conversation } from "@/lib/messages";
 import { formatRelativeDate } from "@/lib/postDisplay";
 import { SYSTEM_CONVERSATION_ID } from "@/lib/systemMessages";
 
+function ChatBubbleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="size-6">
+      <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1Z" />
+    </svg>
+  );
+}
+
 function ConversationRowSkeleton() {
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">
@@ -54,7 +62,20 @@ export default function ConversationList() {
   }
 
   if (conversations.length === 0) {
-    return <p className="px-4 py-10 text-center text-sm text-stone-400">No messages yet.</p>;
+    return (
+      <div className="px-6 py-14 text-center">
+        <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-kavanaka-aqua/15 text-kavanaka-aqua">
+          <ChatBubbleIcon />
+        </div>
+        <h2 className="text-base font-bold text-stone-900">No messages yet</h2>
+        <p className="mt-1.5 text-sm text-stone-500">
+          Start a conversation from someone&apos;s profile, or explore posts to find people to talk to.
+        </p>
+        <Link href="/" className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white">
+          Explore
+        </Link>
+      </div>
+    );
   }
 
   return (

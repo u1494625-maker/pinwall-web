@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import TextPostVisual from "@/components/post/TextPostVisual";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { formatShortDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
+import { formatRelativeDate, getDisplayTitle, resolveImageAspectRatio } from "@/lib/postDisplay";
 import { getViewportSeenPostIds, markPostViewportSeen } from "@/lib/recommendation/exploreViewportSeen";
 import { logDetailClickEvent } from "@/lib/recommendation/events";
 import type { Post } from "@/types/post";
@@ -30,6 +30,28 @@ function StackedPhotosIcon() {
     >
       <rect x="3" y="7" width="14" height="14" rx="2" />
       <path d="M7 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2" />
+    </svg>
+  );
+}
+
+/** Purely decorative pin glyph for the location signal below — kept tiny and
+ *  outlined so it reads as a subtle label icon, not a call to action. */
+function LocationPinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="size-2.5 shrink-0">
+      <path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22Z" />
+      <circle cx="12" cy="9.5" r="2.5" />
+    </svg>
+  );
+}
+
+/** Outlined thumbs-up — same glyph family as PostDetail's Helpful button
+ *  (components/post/PostDetail.tsx), kept purely as a read-only count badge
+ *  here (no toggle behavior on the card itself). */
+function ThumbsUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="size-2.5 shrink-0">
+      <path d="M7 22V10M2 13v7a2 2 0 0 0 2 2h12.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14V5a3 3 0 0 0-3-3l-4 9v2" />
     </svg>
   );
 }
@@ -149,20 +171,39 @@ function PostCardAuthor({ post }: { post: Post }) {
 
   // Degrade safely: a post with no real owner (e.g. authored before auth
   // existed) gets plain, unlinked author text rather than a fake profile link.
-  const authorIdentity = !post.userId ? (
+  return !post.userId ? (
     <div className="flex min-w-0 items-center gap-1.5">{content}</div>
   ) : (
     <Link href={`/profile/${post.userId}`} className="flex min-w-0 items-center gap-1.5">
       {content}
     </Link>
   );
+}
 
-  const date = formatShortDate(post.createdAt);
+/** WHERE + WHEN on the left (location, if any, then relative freshness —
+ *  "23m"/"2h"/"3d", falling back to a short date past a week, via
+ *  formatRelativeDate), HELPFUL vote count on the right. Deliberately no
+ *  reward/threshold/progress info of any kind here — Helpful is always just
+ *  post.likeCount, the same general-purpose community signal PostDetail's
+ *  own Helpful button reads and writes, independent of any promotion. */
+function PostCardMeta({ post }: { post: Post }) {
+  const relativeTime = post.createdAt ? formatRelativeDate(post.createdAt) : undefined;
+  const whereWhen = [post.locationName, relativeTime].filter(Boolean).join(" · ");
 
   return (
-    <div className="mt-1.5 flex items-center justify-between gap-2">
-      {authorIdentity}
-      {date ? <span className="shrink-0 text-[11px] text-stone-400">{date}</span> : null}
+    <div className="mt-1 flex items-center justify-between gap-2">
+      {whereWhen ? (
+        <span className="flex min-w-0 items-center gap-0.5 truncate text-[10.5px] text-stone-400">
+          {post.locationName ? <LocationPinIcon /> : null}
+          <span className="truncate">{whereWhen}</span>
+        </span>
+      ) : (
+        <span />
+      )}
+      <span className="flex shrink-0 items-center gap-0.5 text-[10.5px] font-semibold text-stone-500">
+        <ThumbsUpIcon />
+        {post.likeCount}
+      </span>
     </div>
   );
 }
@@ -226,7 +267,7 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
             it here would be a literal duplicate, not a supporting caption. */}
         {!post.textTemplate ? (
           <div className="px-2.5 pt-2.5">
-            <h2 className="text-[13px] font-bold leading-snug text-stone-900">
+            <h2 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">
               {getDisplayTitle(post)}
             </h2>
           </div>
@@ -235,6 +276,7 @@ export default function PostCard({ post, homeOriginated = false, trackViewportSe
 
       <div className="px-2.5 pb-2.5">
         <PostCardAuthor post={post} />
+        <PostCardMeta post={post} />
       </div>
     </article>
   );

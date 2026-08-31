@@ -28,16 +28,26 @@ type ProfileHeaderProps = {
  */
 export default function ProfileHeader({ profile, onBack, headerActions }: ProfileHeaderProps) {
   const displayName = profile.displayName ?? FALLBACK_DISPLAY_NAME;
+  // No custom background AND no avatar to blur into one — the old default
+  // here was a full-bleed near-black rectangle, which read as an unfinished/
+  // broken state rather than a deliberate look. A light, on-brand gradient
+  // (with correspondingly dark text/controls below) keeps this consistent
+  // with Kavanaka's lighter identity instead.
+  const hasPhoto = Boolean(profile.backgroundUrl || profile.avatarUrl);
 
   return (
     <div className="relative h-56 w-full">
-      <div className="absolute inset-0 overflow-hidden bg-stone-800">
+      <div
+        className={`absolute inset-0 overflow-hidden ${
+          hasPhoto ? "bg-stone-800" : "bg-gradient-to-br from-kavanaka-lime/35 via-kavanaka-cream to-kavanaka-cream"
+        }`}
+      >
         {profile.backgroundUrl ? (
           <DemoPhoto src={profile.backgroundUrl} alt="" className="absolute inset-0" />
         ) : profile.avatarUrl ? (
           <DemoPhoto src={profile.avatarUrl} alt="" className="absolute inset-0 scale-150 blur-3xl" />
         ) : null}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/45 to-black/80" />
+        {hasPhoto ? <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/45 to-black/80" /> : null}
       </div>
 
       {onBack ? (
@@ -45,7 +55,9 @@ export default function ProfileHeader({ profile, onBack, headerActions }: Profil
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="absolute left-4 top-[calc(env(safe-area-inset-top)+1.25rem)] grid size-9 place-items-center rounded-full bg-white/15 text-2xl leading-none text-white backdrop-blur-sm"
+          className={`absolute left-4 top-[calc(env(safe-area-inset-top)+1.25rem)] grid size-9 place-items-center rounded-full text-2xl leading-none backdrop-blur-sm ${
+            hasPhoto ? "bg-white/15 text-white" : "bg-kavanaka-ink/8 text-kavanaka-ink"
+          }`}
         >
           ‹
         </button>
@@ -68,11 +80,19 @@ export default function ProfileHeader({ profile, onBack, headerActions }: Profil
           </div>
         )}
         <div className="min-w-0 pb-11">
-          <h1 className="truncate text-base font-black text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+          <h1
+            className={`truncate text-base font-black ${
+              hasPhoto ? "text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]" : "text-kavanaka-ink"
+            }`}
+          >
             {displayName}
           </h1>
           {profile.bio ? (
-            <p className="mt-0.5 line-clamp-2 max-w-[16rem] text-[11px] font-medium leading-snug text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+            <p
+              className={`mt-0.5 line-clamp-2 max-w-[16rem] text-[11px] font-medium leading-snug ${
+                hasPhoto ? "text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" : "text-stone-600"
+              }`}
+            >
               {profile.bio}
             </p>
           ) : null}

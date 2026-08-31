@@ -1,4 +1,4 @@
-export const TITLE_MAX_LENGTH = 40;
+export const TITLE_MAX_LENGTH = 60;
 
 type TitleFieldProps = {
   value: string;

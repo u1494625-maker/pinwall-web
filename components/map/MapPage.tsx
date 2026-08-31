@@ -15,6 +15,7 @@ import { postMatchesQuery } from "@/lib/search";
 import type { Post } from "@/types/post";
 import PostClusterMarker, { clusterMarkerSizePx } from "./PostClusterMarker";
 import PostMapMarker from "./PostMapMarker";
+import SelectedPostPreview from "./SelectedPostPreview";
 
 // Starting point when no viewport has been saved yet and there's no post to
 // center on — a campus-scale view of UC Berkeley (Sather Tower/Sproul Plaza
@@ -168,14 +169,18 @@ export default function MapPage() {
   const clusterIndexRef = useRef<MapItemIndex | null>(null);
   const postsByIdRef = useRef<Map<number, Post>>(new Map());
   const moveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Which item's marker should render highlighted (the "View on Map" deep-link
-  // target only, now that clicking a marker navigates straight to Post Detail
-  // instead of opening a preview) — read by updateMarkers via ref (not React
-  // state) because it's called from Leaflet event handlers bound once at
-  // mount, which would otherwise close over a stale value. Keyed by both
-  // postId and mediaId so highlighting one photo never also highlights
-  // another photo belonging to the same post.
+  // Which item's marker should render emphasized — either the "View on Map"
+  // deep-link target, or whichever marker the user just tapped (both unified
+  // into one "selected" concept/visual, see PostMapMarker). Read by
+  // updateMarkers via ref (not React state) because it's called from Leaflet
+  // event handlers bound once at mount, which would otherwise close over a
+  // stale value. Keyed by both postId and mediaId so emphasizing one photo
+  // never also emphasizes another photo belonging to the same post.
   const highlightedItemRef = useRef<{ postId: number; mediaId: number | null } | null>(null);
+  // The React-visible mirror of highlightedItemRef above — exists purely to
+  // drive the bottom SelectedPostPreview card's render (a ref alone can't
+  // trigger a re-render). Always set/cleared together with the ref.
+  const [selectedItem, setSelectedItem] = useState<{ postId: number; mediaId: number | null } | null>(null);
   // Set right before a one-shot programmatic camera move (View on Map targeting)
   // so the very next debounced save skips persisting it as the ambient viewport.
   const suppressNextViewportSaveRef = useRef(false);
@@ -228,30 +233,33 @@ export default function MapPage() {
             <PostMapMarker
               cover={cover}
               title={getDisplayTitle(post)}
-              highlighted={
+              selected={
                 highlightedItemRef.current?.postId === postId && highlightedItemRef.current?.mediaId === mediaId
               }
               textTemplate={textTemplate}
             />,
           ),
           className: "",
-          // Anchored to the bottom-center of the fixed-size photo/pin bubble only — the
-          // caption label below it is variable-height and renders outside this box.
+          // Anchored to the bottom-center of the fixed-size photo/pin bubble.
           iconSize: [80, 80],
           iconAnchor: [40, 80],
         });
         leaflet
           .marker([latitude, longitude], { icon })
           .on("click", () => {
-            // Direct single-marker -> PostDetail open only — a cluster ->
-            // cluster-feed -> PostCard open goes through PostCard's own
-            // detail_click instrumentation instead (see the plan's
-            // Decisions on why this isn't split into a separate signal).
+            // Tapping a single marker selects it (emphasizes the pin, shows
+            // the bottom SelectedPostPreview) rather than navigating
+            // straight to Post Detail — the preview card itself is what
+            // opens Post Detail now. A cluster -> cluster-feed -> PostCard
+            // open still goes through PostCard's own detail_click
+            // instrumentation instead (unaffected by this change).
             const userId = currentUserIdRef.current;
             if (userId) {
               logMapInteractionEvent(userId, postId);
             }
-            router.push(mediaId != null ? `/post/${postId}?mediaId=${mediaId}` : `/post/${postId}`);
+            highlightedItemRef.current = { postId, mediaId };
+            setSelectedItem({ postId, mediaId });
+            updateMarkersRef.current();
           })
           .addTo(layer);
       } else {
@@ -362,6 +370,15 @@ export default function MapPage() {
 
       map.on("moveend", scheduleUpdate);
       map.on("zoomend", scheduleUpdate);
+      // Tapping empty map area (Leaflet markers already stop their own click
+      // events from reaching this) deselects whatever's currently emphasized
+      // and dismisses the bottom preview card.
+      map.on("click", () => {
+        if (!highlightedItemRef.current) return;
+        highlightedItemRef.current = null;
+        setSelectedItem(null);
+        updateMarkersRef.current();
+      });
 
       setIsMapReady(true);
 
@@ -443,6 +460,7 @@ export default function MapPage() {
       // this effect body.
       map.once("moveend", () => {
         highlightedItemRef.current = { postId: target.postId, mediaId: target.mediaId };
+        setSelectedItem({ postId: target.postId, mediaId: target.mediaId });
         updateMarkersRef.current();
       });
       map.setView([target.latitude, target.longitude], TARGET_POST_ZOOM);
@@ -460,6 +478,16 @@ export default function MapPage() {
       saveMapViewport(viewportFromMap(map));
     }
   }, [isMapReady, allMapItems, allPosts.length, targetPostId, targetMediaId, updateMarkers]);
+
+  // Sourced from filteredPosts (not the unfiltered allPosts) so the preview
+  // naturally disappears if the active filter stops matching the selected
+  // post, rather than showing stale info the map itself no longer displays.
+  const selectedPost = selectedItem ? filteredPosts.find((post) => post.id === selectedItem.postId) : undefined;
+  const selectedCover = selectedPost
+    ? selectedItem?.mediaId != null
+      ? selectedPost.media.find((media) => media.id === selectedItem.mediaId)
+      : selectedPost.media[0]
+    : undefined;
 
   return (
     <main className="relative mx-auto h-dvh w-full max-w-md overflow-hidden bg-stone-200 pb-20 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
@@ -483,7 +511,7 @@ export default function MapPage() {
               onClick={() => handleSelectTimeFilter(option.value)}
               aria-pressed={timeFilter === option.value}
               className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                timeFilter === option.value ? "bg-stone-900 text-white" : "text-stone-500"
+                timeFilter === option.value ? "bg-kavanaka-green text-white" : "text-stone-500"
               }`}
             >
               {option.label}
@@ -526,6 +554,8 @@ export default function MapPage() {
           </button>
         )}
       </div>
+
+      {selectedPost ? <SelectedPostPreview post={selectedPost} cover={selectedCover} /> : null}
     </main>
   );
 }
