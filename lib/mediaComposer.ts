@@ -484,16 +484,25 @@ export function useMediaComposer({
   function handleRemoveMedia(key: string) {
     const item = mediaItems.find((i) => i.key === key);
     if (item && item.kind === "new") URL.revokeObjectURL(item.previewUrl);
-    const remaining = mediaItems.filter((i) => i.key !== key);
 
     // Per-photo mode only makes sense with >1 photo — collapse back to the
     // single-location editor the moment that stops being true, mirroring
     // modeFor's "removing every item returns to neutral" convention already
-    // used in this file.
-    if (perPhotoLocationMode && remaining.length <= 1) {
+    // used in this file. Decided from this render's mediaItems (accurate
+    // for any single, normally-paced removal); the actual array update
+    // below is computed independently from React's own queued `prev`, so
+    // mediaItems can never end up wrong even if two removals were ever
+    // queued back to back before a re-render lands.
+    const willCollapsePerPhotoMode = perPhotoLocationMode && mediaItems.filter((i) => i.key !== key).length <= 1;
+
+    setMediaItems((prev) => {
+      const remaining = prev.filter((i) => i.key !== key);
+      return willCollapsePerPhotoMode ? remaining.map((i) => ({ ...i, location: undefined })) : remaining;
+    });
+
+    if (willCollapsePerPhotoMode) {
       setSelectedLocationKeys(new Set());
       setPerPhotoLocationMode(false);
-      setMediaItems(remaining.map((i) => ({ ...i, location: undefined })));
       return;
     }
 
@@ -505,7 +514,6 @@ export function useMediaComposer({
       next.delete(key);
       return next;
     });
-    setMediaItems(remaining);
   }
 
   function handleMoveMedia(key: string, direction: -1 | 1) {

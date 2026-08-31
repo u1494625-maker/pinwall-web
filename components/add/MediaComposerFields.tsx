@@ -3,7 +3,7 @@
 import type { ChangeEvent, RefObject } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import { VIDEO_EXTENSIONS, type MediaComposerItem, type MediaMode, type VideoAsset } from "@/lib/mediaComposer";
-import { ALLOWED_MEDIA_TYPES, ALLOWED_VIDEO_TYPES } from "@/lib/storage";
+import { ALLOWED_IMAGE_TYPES, ALLOWED_MEDIA_TYPES, ALLOWED_VIDEO_TYPES } from "@/lib/storage";
 import PerPhotoLocationFields from "./PerPhotoLocationFields";
 import PostLocationFields from "./PostLocationFields";
 import TagChipInput from "./TagChipInput";
@@ -12,6 +12,15 @@ import TitleField from "./TitleField";
 function videoAssetSrc(asset: VideoAsset): string {
   return asset.kind === "existing" ? asset.url : asset.previewUrl;
 }
+
+// Offered only while mode is null (nothing chosen yet) — see the accept
+// prop below, which switches to PHOTO_ONLY_ACCEPT the instant a photo is
+// staged, so the OS stops offering Video once photo mode is locked in.
+const COMBINED_MEDIA_ACCEPT = `${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif,${VIDEO_EXTENSIONS.join(",")}`;
+// Photo mode locks the picker to photos only, matching handleMediaFiles'
+// own mode-lock rule (lib/mediaComposer.ts) — without this, iOS still
+// offered a Video capture mode the app would just reject after the fact.
+const PHOTO_ONLY_ACCEPT = `${ALLOWED_IMAGE_TYPES.join(",")},image/heic,image/heif,.heic,.heif`;
 
 type MediaComposerFieldsProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -154,8 +163,14 @@ export default function MediaComposerFields({
           // .mp4/.mov/.webm) alongside the MIME list — iOS Safari doesn't
           // always report a helpful `type` for a file picked from the
           // Photos library, so the accept filter itself needs both signals
-          // to reliably offer these files in the native picker.
-          accept={`${ALLOWED_MEDIA_TYPES.join(",")},image/heic,image/heif,.heic,.heif,${VIDEO_EXTENSIONS.join(",")}`}
+          // to reliably offer these files in the native picker. Narrowed to
+          // photos only once mode is locked to "photo" — mediaItems.length
+          // > 0 is the only way mode becomes "photo" here (this input never
+          // renders at all in video mode, see the mode === "video" branch
+          // above), so this is the same lock handleMediaFiles itself
+          // enforces, just surfaced to the OS instead of only rejected
+          // after the fact.
+          accept={mode === "photo" ? PHOTO_ONLY_ACCEPT : COMBINED_MEDIA_ACCEPT}
           capture={captureEnvironment ? "environment" : undefined}
           onChange={onMediaChange}
           className="hidden"
