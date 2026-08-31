@@ -98,6 +98,13 @@ export default function AddPostActionSheet({ open, onClose, onChoose }: AddPostA
   // user can choose Camera again, Album, Text, or Cancel.
   function handleCameraCapture(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
+    // TEMPORARY diagnostic instrumentation — remove once the video-staging bug is root-caused.
+    console.log("[camera-capture]", {
+      hasFile: Boolean(file),
+      name: file?.name,
+      type: file?.type,
+      size: file?.size,
+    });
     event.target.value = ""; // allow capturing again later without stale state
     if (!file) return;
     setPendingCapture(file);

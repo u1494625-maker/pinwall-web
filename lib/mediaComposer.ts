@@ -272,6 +272,17 @@ export function useMediaComposer({
 
     setError(null);
 
+    // TEMPORARY diagnostic instrumentation — remove once the video-staging bug is root-caused.
+    console.log(
+      "[media-files:start]",
+      files.map((file) => ({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        detectedType: detectMediaType(file),
+      })),
+    );
+
     // Recomputed per-batch, then locked in the moment the batch's first valid
     // item is accepted (not merely attempted) — see modeFor's doc comment.
     let currentMode = mode;
@@ -394,6 +405,15 @@ export function useMediaComposer({
         currentMode ??= "photo";
       }
     }
+
+    // TEMPORARY diagnostic instrumentation — remove once the video-staging bug is root-caused.
+    console.log("[media-files:result]", {
+      acceptedVideo: Boolean(acceptedVideoFile),
+      videoTooLargeCount,
+      unsupportedVideoCount,
+      processingFailedCount,
+      acceptedImageCount: newItems.length,
+    });
 
     if (newItems.length > 0) {
       setMediaItems((prev) => [...prev, ...newItems]);
