@@ -10,7 +10,7 @@ import TagChipInput from "./TagChipInput";
 import TitleField from "./TitleField";
 
 function videoAssetSrc(asset: VideoAsset): string {
-  return asset.kind === "existing" ? asset.url : asset.previewUrl;
+  return asset.kind === "new" ? asset.previewUrl : asset.url;
 }
 
 // Offered only while mode is null (nothing chosen yet) — see the accept
@@ -31,6 +31,11 @@ type MediaComposerFieldsProps = {
   onMediaChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemoveMedia: (key: string) => void;
   onMoveMedia: (key: string, direction: -1 | 1) => void;
+  /** Only present when the caller enabled immediate upload (MediaPostEditor)
+   *  — undefined for EditPostForm, whose "new" items are always "uploaded"
+   *  the instant they're staged (see useMediaComposer), so this is never
+   *  needed there. */
+  onRetryMedia?: (key: string) => void;
   /** Auto-opens the camera capture UI instead of the plain file picker —
    *  only meaningful for the create flow's "Camera" entry point. */
   captureEnvironment?: boolean;
@@ -42,6 +47,8 @@ type MediaComposerFieldsProps = {
   videoInputRef: RefObject<HTMLInputElement | null>;
   onVideoChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemoveVideo: () => void;
+  /** Same caveat as onRetryMedia above. */
+  onRetryVideo?: () => void;
 
   title: string;
   onTitleChange: (value: string) => void;
@@ -80,11 +87,13 @@ export default function MediaComposerFields({
   onMediaChange,
   onRemoveMedia,
   onMoveMedia,
+  onRetryMedia,
   captureEnvironment = false,
   video,
   videoInputRef,
   onVideoChange,
   onRemoveVideo,
+  onRetryVideo,
   title,
   onTitleChange,
   caption,
@@ -122,6 +131,11 @@ export default function MediaComposerFields({
                 preload="metadata"
                 className="aspect-[4/5] w-full rounded-2xl bg-black object-contain"
               />
+              {video.kind === "new" && video.uploadStatus !== "uploaded" ? (
+                <p className="mt-2 text-[11px] font-semibold text-stone-500">
+                  {video.uploadStatus === "uploading" ? "Uploading…" : (video.uploadError ?? "Upload failed.")}
+                </p>
+              ) : null}
               <div className="mt-2 flex gap-2">
                 <button
                   type="button"
@@ -130,7 +144,21 @@ export default function MediaComposerFields({
                 >
                   Replace video
                 </button>
-                {video.kind === "new" ? (
+                {video.kind === "new" && video.uploadStatus === "error" && onRetryVideo ? (
+                  <button
+                    type="button"
+                    onClick={onRetryVideo}
+                    className="rounded-full bg-stone-100 px-3.5 py-1.5 text-[12px] font-bold text-stone-700"
+                  >
+                    Retry
+                  </button>
+                ) : null}
+                {/* "existing" (EditPostForm's published video) never gets a Remove
+                    button — a video post there must always have a video. "draft"
+                    (a restored MediaPostEditor draft video) can be removed just
+                    like a freshly staged "new" one, reverting to the empty
+                    "+ Add a video" placeholder — create has no such floor. */}
+                {video.kind !== "existing" ? (
                   <button
                     type="button"
                     onClick={onRemoveVideo}
@@ -202,6 +230,21 @@ export default function MediaComposerFields({
                   <div className="size-24 overflow-hidden rounded-2xl">
                     <DemoPhoto src={item.previewUrl} alt={`Media ${index + 1}`} className="size-full" />
                   </div>
+
+                  {item.kind === "new" && item.uploadStatus === "uploading" ? (
+                    <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-2xl bg-black/40">
+                      <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    </div>
+                  ) : item.kind === "new" && item.uploadStatus === "error" ? (
+                    <button
+                      type="button"
+                      onClick={() => onRetryMedia?.(item.key)}
+                      aria-label="Retry upload"
+                      className="absolute inset-0 grid place-items-center rounded-2xl bg-red-600/70 text-[10px] font-bold text-white"
+                    >
+                      Retry
+                    </button>
+                  ) : null}
 
                   {index === 0 ? (
                     <span className="absolute left-1 top-1 rounded-full bg-stone-900/80 px-1.5 py-0.5 text-[9px] font-bold text-white">

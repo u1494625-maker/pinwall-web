@@ -457,6 +457,15 @@ function EditPhotoPostFields({ post }: { post: Post }) {
           continue;
         }
 
+        // "draft" only exists for MediaPostEditor's restored-draft items
+        // (Phase 4A) — EditPostForm never seeds initialDraftItems/
+        // initialDraftId, so this can't actually happen; asserted rather
+        // than silently assumed so a future change to that invariant fails
+        // loudly instead of miscompiling into the "new" upload path below.
+        if (item.kind === "draft") {
+          throw new Error("Unexpected restored draft item in EditPostForm.");
+        }
+
         // New photo — same upload pipeline as MediaPostEditor's create flow.
         const aspectRatio = item.imageDiagnostics
           ? `${item.imageDiagnostics.optimizedWidth}/${item.imageDiagnostics.optimizedHeight}`

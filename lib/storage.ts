@@ -53,10 +53,14 @@ export type UploadedMedia = {
 
 /**
  * Uploads a file into the calling user's own folder in the `post-image` bucket,
- * grouped under `draftId` (one per post being composed) so a post's media all
- * lives under one prefix. `draftId` is generated client-side (crypto.randomUUID())
- * before the post row exists — Storage RLS only checks the first path segment
- * (the user id), so a client-generated id here is exactly as valid as a DB id.
+ * grouped under `draftId` so a post's media all lives under one prefix.
+ * `draftId` is the persisted `post_drafts.id` (see lib/postDrafts.ts) for any
+ * caller using immediate upload (MediaPostEditor), or a one-off
+ * `crypto.randomUUID()` for a caller that only uploads at submit time
+ * (EditPostForm) — Storage RLS only checks the first path segment (the user
+ * id), so either kind of id here is exactly as valid as the other, and
+ * publishing a draft never moves/renames the object this path already
+ * points to.
  */
 export async function uploadPostMedia(file: File, userId: string, draftId: string): Promise<UploadedMedia> {
   const path = `${userId}/${draftId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
@@ -230,6 +234,46 @@ export async function deletePostMedia(path: string, bucket: StorageBucket): Prom
   if (error) {
     throw new Error(`Failed to remove uploaded file: ${error.message}`);
   }
+}
+
+/**
+ * Deletes every object under a draft's own prefix (`${userId}/${draftId}/`)
+ * in one bucket, using the plain client-side list()/remove() pair — not the
+ * @experimental listV2 the service-role account-deletion route uses. A
+ * draft's files sit flat, one level under its prefix (see uploadPostMedia/
+ * uploadVideoResumable above; no nested subfolders are ever created), so the
+ * non-recursive list() is already sufficient — nothing here needs
+ * listV2's cursor/recursive machinery. Deliberately uses the caller's own
+ * signed-in client (no service-role key): Storage RLS already scopes both
+ * list and remove to the user's own `userId/` folder, so this is exactly as
+ * privileged as the user already is, no more.
+ */
+async function removeAllUnderDraftPrefix(bucket: StorageBucket, prefix: string): Promise<void> {
+  const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
+  if (error) {
+    throw new Error(`Couldn't list draft files: ${error.message}`);
+  }
+  if (!data || data.length === 0) return;
+
+  const paths = data.map((object) => `${prefix}${object.name}`);
+  const { error: removeError } = await supabase.storage.from(bucket).remove(paths);
+  if (removeError) {
+    throw new Error(`Couldn't remove draft files: ${removeError.message}`);
+  }
+}
+
+/**
+ * Deletes every Storage object belonging to one draft, across both buckets —
+ * the Storage half of "Don't Save" (see discardMediaDraft in
+ * lib/postDrafts.ts, which only deletes the post_drafts row after this
+ * resolves). A draft that never touched one of the two buckets (e.g. a
+ * photo-only draft never wrote to post-video) just lists empty there — a
+ * harmless no-op, not an error.
+ */
+export async function deleteDraftStorage(userId: string, draftId: string): Promise<void> {
+  const prefix = `${userId}/${draftId}/`;
+  await removeAllUnderDraftPrefix(POST_IMAGE_BUCKET, prefix);
+  await removeAllUnderDraftPrefix(POST_VIDEO_BUCKET, prefix);
 }
 
 /**
