@@ -411,6 +411,11 @@ export default function PostDetail({
   }
 
   const isOwner = Boolean(user && post.userId && user.id === post.userId);
+  // A video post is always exactly one item (see PostMediaGallery's own doc
+  // comment) — used to move "View on Map" out of the video (no overlay
+  // there anymore) and into the info section below it instead, unlike photo
+  // posts, which keep their existing overlay pill unchanged.
+  const isVideoPost = post.media[0]?.type === "video";
   // A post "uses per-photo locations" the moment ANY of its media has its own
   // location — derived from data, no stored flag needed (see
   // lib/map/clustering.ts's buildMapItems for the same rule applied on Map).
@@ -668,6 +673,21 @@ export default function PostDetail({
               </Link>
             ))}
           </div>
+        ) : null}
+
+        {/* Video posts only — photo posts keep their existing overlay pill
+            (see ViewOnMapPill in PostMediaGallery.tsx) unchanged. Same
+            href/fallback-to-"View on Map" behavior as that pill; navigation
+            is identical, only the placement (below the video, not over it)
+            and label (location name is called out explicitly, when known)
+            differ. */}
+        {isVideoPost && viewOnMapTarget ? (
+          <Link
+            href={viewOnMapTarget.href}
+            className="mt-4 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.14em] text-kavanaka-aqua"
+          >
+            📍 {post.locationName ? `${post.locationName} · View on Map` : "View on Map"}
+          </Link>
         ) : null}
 
         <div ref={commentsSectionRef} className="mt-6 border-t border-stone-200 pt-5">

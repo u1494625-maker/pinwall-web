@@ -118,10 +118,30 @@ function ViewOnMapPill({ target }: { target: ViewOnMapTarget }) {
  * guarantee photos and video are never mixed), so this only ever needs a
  * single, non-paged <video> — no gallery wrapper, no indicator, no fullscreen
  * viewer (photo fullscreen is explicitly out of scope for video this phase).
+ *
+ * Sized from the video's own real aspect ratio — item.aspectRatio if ever
+ * populated (video uploads don't currently set it, see lib/mediaComposer.ts,
+ * so this is future-proofing rather than the common case today), otherwise
+ * measured once from the <video> element's own natural dimensions via
+ * onLoadedMetadata (preload="metadata" already fetches this) — never a
+ * fixed/guessed ratio, so a portrait clip is never forced into a landscape
+ * frame. Portrait video is capped by height (auto width, centered);
+ * landscape/square is sized by width (auto height) — each dimension is
+ * always derived FROM the real ratio, so the box the browser paints native
+ * play/scrubber controls into is never a mismatched shape.
+ *
+ * No "View on Map" overlay here — that affordance now lives in PostDetail's
+ * info section below the video (see isVideoPost there) instead of overlaying
+ * the video, unlike the photo variants below.
  */
-function VideoMedia({ item, viewOnMapTarget }: { item: PostMedia; viewOnMapTarget?: ViewOnMapTarget | null }) {
+function VideoMedia({ item }: { item: PostMedia }) {
+  const [measuredRatio, setMeasuredRatio] = useState<string | null>(null);
+  const cssAspectRatio = resolveImageAspectRatio(item.aspectRatio ?? measuredRatio);
+  const [ratioWidth, ratioHeight] = cssAspectRatio.split("/").map(Number);
+  const isPortrait = ratioWidth < ratioHeight;
+
   return (
-    <div className="relative">
+    <div className="flex justify-center bg-black">
       {/* Do not autoplay with sound — playback starts only via the native controls.
           #t=0.001 forces iOS Safari to decode/paint a frame before playback starts. */}
       <video
@@ -129,9 +149,15 @@ function VideoMedia({ item, viewOnMapTarget }: { item: PostMedia; viewOnMapTarge
         controls
         playsInline
         preload="metadata"
-        className="aspect-[4/3] w-full bg-black object-contain"
+        onLoadedMetadata={(event) => {
+          const { videoWidth, videoHeight } = event.currentTarget;
+          if (videoWidth > 0 && videoHeight > 0) setMeasuredRatio(`${videoWidth}/${videoHeight}`);
+        }}
+        style={{ aspectRatio: cssAspectRatio }}
+        className={
+          isPortrait ? "h-auto max-h-[62svh] w-auto max-w-full object-contain" : "h-auto w-full object-contain"
+        }
       />
-      {viewOnMapTarget ? <ViewOnMapPill target={viewOnMapTarget} /> : null}
     </div>
   );
 }
@@ -305,7 +331,7 @@ export default function PostMediaGallery({
   viewOnMapTarget,
 }: PostMediaGalleryProps) {
   if (media.length === 0) return null;
-  if (media[0].type === "video") return <VideoMedia item={media[0]} viewOnMapTarget={viewOnMapTarget} />;
+  if (media[0].type === "video") return <VideoMedia item={media[0]} />;
   if (media.length === 1) return <SinglePhotoMedia item={media[0]} title={title} viewOnMapTarget={viewOnMapTarget} />;
   return (
     <PhotoGallery
