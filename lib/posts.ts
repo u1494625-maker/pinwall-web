@@ -187,8 +187,43 @@ async function attachAuthorProfiles(posts: Post[]): Promise<Post[]> {
   });
 }
 
+/**
+ * Runs attachEngagement and attachAuthorProfiles concurrently against the
+ * same base posts, rather than sequentially — safe because each only reads
+ * a post's stable id/userId (untouched by either transform) and only writes
+ * its own disjoint set of fields, so the two results can be merged
+ * deterministically regardless of which one is slower or fails. Both
+ * helpers are plain posts.map(...) over their input, so their output is
+ * always the same length and order as `posts` — index-aligned merging is
+ * safe, including on either helper's own error-fallback path (which returns
+ * `posts` unchanged).
+ */
+async function attachEngagementAndAuthorProfiles(posts: Post[]): Promise<Post[]> {
+  if (posts.length === 0) return posts;
+
+  const [withEngagement, withAuthorProfiles] = await Promise.all([
+    attachEngagement(posts),
+    attachAuthorProfiles(posts),
+  ]);
+
+  return posts.map((post, index) => ({
+    ...post,
+    likeCount: withEngagement[index].likeCount,
+    saveCount: withEngagement[index].saveCount,
+    commentCount: withEngagement[index].commentCount,
+    viewCount: withEngagement[index].viewCount,
+    viewerHasLiked: withEngagement[index].viewerHasLiked,
+    viewerHasSaved: withEngagement[index].viewerHasSaved,
+    authorDisplayName: withAuthorProfiles[index].authorDisplayName,
+    authorAvatarUrl: withAuthorProfiles[index].authorAvatarUrl,
+  }));
+}
+
 /** Every post in the `posts` table, newest first, with ordered media, real
- *  engagement, and current author identity attached. */
+ *  engagement, and current author identity attached. Throws on a Supabase
+ *  query error (rather than swallowing it to []) so callers — see
+ *  useAllPostsState below — can distinguish a genuine empty result from a
+ *  failed fetch. */
 export async function getAllPosts(): Promise<Post[]> {
   if (!isSupabaseConfigured) {
     warnIfNotConfigured();
@@ -202,17 +237,62 @@ export async function getAllPosts(): Promise<Post[]> {
 
   if (error) {
     console.error("Failed to load posts from Supabase:", error.message);
+    throw new Error(error.message);
+  }
+
+  return attachEngagementAndAuthorProfiles((data ?? []).map(rowToPost));
+}
+
+/**
+ * Posts eligible to appear on the Map, newest first — scoped to
+ * show_on_map = true at the database level instead of fetching every post
+ * in the app and filtering client-side. This is the same coarse gate
+ * hasValidMapLocation (lib/map/viewport.ts) already applies for the
+ * post-level-location case; buildMapItems (lib/map/clustering.ts) is left
+ * completely unchanged and still performs the final, precise eligibility
+ * check (a specific per-photo location, or a valid post-level location) —
+ * this query only needs to avoid fetching posts that can never be map items
+ * at all. Per-photo-located media (see MediaPostEditor's
+ * handleToggleShowOnMap/handleTogglePerPhotoLocationMode in
+ * lib/mediaComposer.ts) can only ever exist on a post with
+ * show_on_map = true — turning "Show on map" off actively clears per-photo
+ * location data, and per-photo mode is only reachable while it's already on
+ * — so this one column is a safe, exact gate for both the legacy
+ * post-level-location path and the per-photo path. Throws on a Supabase
+ * query error (rather than swallowing it to []) so callers — see
+ * useMapPostsState below — can distinguish a genuine empty result from a
+ * failed fetch.
+ */
+export async function getMapPosts(): Promise<Post[]> {
+  if (!isSupabaseConfigured) {
+    warnIfNotConfigured();
     return [];
   }
 
-  return attachAuthorProfiles(await attachEngagement((data ?? []).map(rowToPost)));
+  const { data, error } = await supabase
+    .from("posts")
+    .select(POST_COLUMNS)
+    .eq("show_on_map", true)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to load map posts from Supabase:", error.message);
+    throw new Error(error.message);
+  }
+
+  return attachEngagementAndAuthorProfiles((data ?? []).map(rowToPost));
 }
 
 /**
  * Posts authored by any of the given user IDs, newest first — used by the
- * Home "Following" feed. Returns [] immediately, with no query at all, when
- * `userIds` is empty (following nobody) rather than relying on how `.in()`
- * with an empty array behaves across client versions.
+ * Home "Following" feed and by /me's own-posts grid. Returns [] immediately,
+ * with no query at all, when `userIds` is empty (following nobody) rather
+ * than relying on how `.in()` with an empty array behaves across client
+ * versions. Throws on a Supabase query error (rather than swallowing it to
+ * []) so callers that need to distinguish a genuine empty result from a
+ * failed fetch can do so — see app/me/page.tsx. Callers that don't need that
+ * distinction (e.g. PinWallHome's Following tab, PublicProfile) catch and
+ * fall back to [] themselves, same as this function used to do internally.
  */
 export async function getPostsByUserIds(userIds: string[]): Promise<Post[]> {
   if (userIds.length === 0) return [];
@@ -230,7 +310,7 @@ export async function getPostsByUserIds(userIds: string[]): Promise<Post[]> {
 
   if (error) {
     console.error("Failed to load posts from Supabase:", error.message);
-    return [];
+    throw new Error(error.message);
   }
 
   return attachAuthorProfiles(await attachEngagement((data ?? []).map(rowToPost)));
@@ -604,13 +684,16 @@ let cachedAllPosts: Post[] | null = null;
 const POSTS_FETCH_TIMEOUT_MS = 8000;
 
 /**
- * Fetches every post on mount, exposing loading state alongside the data so
- * callers can distinguish "still loading" from "genuinely empty" — `posts`
- * alone is `[]` in both cases until this resolves.
+ * Fetches every post on mount, exposing loading/error state alongside the
+ * data so callers can distinguish "still loading", "genuinely empty" (a
+ * successful fetch that returned zero posts), and "failed" — `posts` alone
+ * is `[]` in all three cases until/unless a fetch actually succeeds.
  */
-export function useAllPostsState(): { posts: Post[]; loading: boolean } {
+export function useAllPostsState(): { posts: Post[]; loading: boolean; error: boolean; retry: () => void } {
   const [posts, setPosts] = useState<Post[]>(() => cachedAllPosts ?? []);
   const [loading, setLoading] = useState(() => cachedAllPosts === null);
+  const [error, setError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -620,17 +703,21 @@ export function useAllPostsState(): { posts: Post[]; loading: boolean } {
       try {
         result = await withTimeout(getAllPosts(), POSTS_FETCH_TIMEOUT_MS);
       } catch {
-        // First attempt timed out or rejected — one immediate retry, no more.
-        // Skipped entirely once this effect has already been cleaned up
-        // (e.g. React StrictMode's dev-only double-invoke), so a torn-down
-        // instance never fires a second request nobody will use.
+        // First attempt timed out, rejected, or the query itself errored —
+        // one immediate retry, no more. Skipped entirely once this effect
+        // has already been cleaned up (e.g. React StrictMode's dev-only
+        // double-invoke), so a torn-down instance never fires a second
+        // request nobody will use.
         if (cancelled) return;
         try {
           result = await withTimeout(getAllPosts(), POSTS_FETCH_TIMEOUT_MS);
         } catch {
-          // Both attempts failed — stop loading and keep whatever was
-          // already showing (cached posts if any, otherwise the initial []).
-          if (!cancelled) setLoading(false);
+          // Both attempts failed — stop loading and surface the error
+          // explicitly, rather than presenting stale/empty posts as success.
+          if (!cancelled) {
+            setLoading(false);
+            setError(true);
+          }
           return;
         }
       }
@@ -644,12 +731,94 @@ export function useAllPostsState(): { posts: Post[]; loading: boolean } {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryToken]);
 
-  return { posts, loading };
+  function retry() {
+    setLoading(true);
+    setError(false);
+    setRetryToken((token) => token + 1);
+  }
+
+  return { posts, loading, error, retry };
 }
 
 /** Fetches every post on mount. Returns [] until the request resolves. */
 export function useAllPosts(): Post[] {
   return useAllPostsState().posts;
+}
+
+/**
+ * Last successful getMapPosts() result, kept in module scope — same
+ * reasoning as cachedAllPosts above (e.g. Map -> Post Detail -> Map, or
+ * Map -> a tapped cluster's feed and back, are separate routes that fully
+ * remount). Deliberately a separate cache from cachedAllPosts: Map no
+ * longer depends on the global all-posts fetch at all.
+ */
+let cachedMapPosts: Post[] | null = null;
+
+// Same reasoning/value as POSTS_FETCH_TIMEOUT_MS above, scoped to map posts.
+const MAP_POSTS_FETCH_TIMEOUT_MS = 8000;
+
+/**
+ * Fetches only map-eligible posts on mount, exposing loading/error state
+ * alongside the data — same shape and same one-retry-then-error semantics as
+ * useAllPostsState above, kept as an independent hook (own cache, own
+ * effect) rather than layered on top of it, so Map no longer depends on the
+ * global all-posts fetch/cache at all.
+ */
+export function useMapPostsState(): { posts: Post[]; loading: boolean; error: boolean; retry: () => void } {
+  const [posts, setPosts] = useState<Post[]>(() => cachedMapPosts ?? []);
+  const [loading, setLoading] = useState(() => cachedMapPosts === null);
+  const [error, setError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      let result: Post[];
+      try {
+        result = await withTimeout(getMapPosts(), MAP_POSTS_FETCH_TIMEOUT_MS);
+      } catch {
+        // First attempt timed out, rejected, or the query itself errored —
+        // one immediate retry, no more. Skipped entirely once this effect
+        // has already been cleaned up, so a torn-down instance never fires a
+        // second request nobody will use.
+        if (cancelled) return;
+        try {
+          result = await withTimeout(getMapPosts(), MAP_POSTS_FETCH_TIMEOUT_MS);
+        } catch {
+          // Both attempts failed — stop loading and surface the error
+          // explicitly, rather than presenting stale/empty posts as success.
+          if (!cancelled) {
+            setLoading(false);
+            setError(true);
+          }
+          return;
+        }
+      }
+
+      if (cancelled) return;
+      cachedMapPosts = result;
+      setPosts(result);
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [retryToken]);
+
+  function retry() {
+    setLoading(true);
+    setError(false);
+    setRetryToken((token) => token + 1);
+  }
+
+  return { posts, loading, error, retry };
+}
+
+/** Fetches only map-eligible posts on mount. Returns [] until the request resolves. */
+export function useMapPosts(): Post[] {
+  return useMapPostsState().posts;
 }

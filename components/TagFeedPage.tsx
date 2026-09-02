@@ -23,7 +23,7 @@ type TagFeedPageProps = {
  * tag string to equal "clubs" exactly.
  */
 export default function TagFeedPage({ tag }: TagFeedPageProps) {
-  const { posts, loading } = useAllPostsState();
+  const { posts, loading, error, retry } = useAllPostsState();
   const taggedPosts = rankPostsByTag(posts, tag);
 
   return (
@@ -34,14 +34,29 @@ export default function TagFeedPage({ tag }: TagFeedPageProps) {
         </Link>
         <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-kavanaka-green">Tagged</p>
         <h1 className="mt-1 text-2xl font-black tracking-tight">#{tag}</h1>
-        {!loading ? (
+        {!loading && !error ? (
           <p className="mt-1 text-sm text-stone-500">
             {taggedPosts.length} {taggedPosts.length === 1 ? "post" : "posts"}
           </p>
         ) : null}
       </header>
 
-      {loading ? <FeedSkeleton /> : <MasonryFeed posts={taggedPosts} />}
+      {loading ? (
+        <FeedSkeleton />
+      ) : error ? (
+        <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
+          <h2 className="text-lg font-bold">Couldn&apos;t load posts.</h2>
+          <button
+            type="button"
+            onClick={retry}
+            className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white"
+          >
+            Try again
+          </button>
+        </div>
+      ) : (
+        <MasonryFeed posts={taggedPosts} />
+      )}
     </main>
   );
 }

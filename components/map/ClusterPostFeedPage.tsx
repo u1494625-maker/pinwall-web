@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import MasonryFeed from "@/components/MasonryFeed";
-import { useAllPosts } from "@/lib/posts";
+import MasonryFeed, { FeedSkeleton } from "@/components/MasonryFeed";
+import { useMapPostsState } from "@/lib/posts";
 
 type ClusterPostFeedPageProps = {
   postIds: number[];
@@ -10,12 +10,19 @@ type ClusterPostFeedPageProps = {
 
 /**
  * Behaves like a filtered Home feed: same MasonryFeed/PostCard used on Home,
- * scoped to exactly the post IDs the tapped cluster represented.
+ * scoped to exactly the post IDs the tapped cluster represented. `postIds`
+ * always come from a cluster built out of Map's own map-eligible item index
+ * (see buildMapItems/buildClusterIndex), so every id here is guaranteed to
+ * be a map-eligible post — sourcing from the same scoped useMapPostsState()
+ * Map itself now uses (rather than every post in the app) is an exact,
+ * lossless swap, not a narrower/different pool. Used directly (not the
+ * useMapPosts() convenience wrapper) so a still-loading or failed fetch can
+ * be told apart from a genuine zero-post result.
  */
 export default function ClusterPostFeedPage({ postIds }: ClusterPostFeedPageProps) {
-  const allPosts = useAllPosts();
+  const { posts: mapPosts, loading, error, retry } = useMapPostsState();
   const clusterPosts = postIds
-    .map((id) => allPosts.find((post) => post.id === id))
+    .map((id) => mapPosts.find((post) => post.id === id))
     .filter((post) => post !== undefined);
 
   return (
@@ -26,12 +33,29 @@ export default function ClusterPostFeedPage({ postIds }: ClusterPostFeedPageProp
             ‹ Back to map
           </Link>
           <h1 className="mt-2 text-2xl font-black tracking-tight">
-            {clusterPosts.length} {clusterPosts.length === 1 ? "post" : "posts"} in this area
+            {loading || error
+              ? "Posts in this area"
+              : `${clusterPosts.length} ${clusterPosts.length === 1 ? "post" : "posts"} in this area`}
           </h1>
         </div>
       </header>
 
-      <MasonryFeed posts={clusterPosts} />
+      {loading ? (
+        <FeedSkeleton />
+      ) : error ? (
+        <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
+          <h2 className="text-lg font-bold">Couldn&apos;t load posts.</h2>
+          <button
+            type="button"
+            onClick={retry}
+            className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white"
+          >
+            Try again
+          </button>
+        </div>
+      ) : (
+        <MasonryFeed posts={clusterPosts} />
+      )}
     </main>
   );
 }

@@ -32,11 +32,13 @@ function ConversationRowSkeleton() {
  *  the only thing that does that. */
 export default function ConversationList() {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch the list.
+  const userId = user?.id ?? null;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     getConversations().then((result) => {
@@ -49,7 +51,7 @@ export default function ConversationList() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   if (loading) {
     return (

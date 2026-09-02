@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type * as LType from "leaflet";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getDisplayTitle } from "@/lib/postDisplay";
-import { useAllPosts } from "@/lib/posts";
+import { useMapPostsState } from "@/lib/posts";
 import { buildClusterIndex, buildMapItems, getVisibleMapFeatures, pickClusterCoverImage, type MapItemIndex } from "@/lib/map/clustering";
 import { readMapViewport, saveMapViewport } from "@/lib/map/viewport";
 import type { MapViewport } from "@/lib/map/types";
@@ -75,7 +75,13 @@ function viewportFromMap(map: LType.Map): MapViewport {
 }
 
 export default function MapPage() {
-  const allPosts = useAllPosts();
+  // Map-eligible posts only (show_on_map = true), not every post in the app
+  // — see getMapPosts in lib/posts.ts. `allPosts` is kept as the local name
+  // (Map's own filtering/clustering pipeline below is unchanged and already
+  // narrows this further to exactly what buildMapItems considers a real map
+  // item) to keep this change scoped to what's fetched, not what Map does
+  // with it.
+  const { posts: allPosts, error: mapPostsError, retry: retryMapPosts } = useMapPostsState();
   const { user } = useAuth();
   // Read inside the marker click handler (bound once, imperatively, inside
   // updateMarkers below) instead of adding `user` to updateMarkers's own
@@ -134,8 +140,8 @@ export default function MapPage() {
 
   // The actual source list clustering/markers are built from — every other
   // Map eligibility rule (show_on_map, valid coordinates, RLS/moderation
-  // visibility) is already baked into what useAllPosts() returns and what
-  // buildMapItems selects. Time and keyword combine with AND: both filters
+  // visibility) is already baked into what useMapPostsState() returns and
+  // what buildMapItems selects. Time and keyword combine with AND: both filters
   // apply to the same source list, in one pass, before anything downstream
   // (clustering, marker generation, cluster-feed postIds) ever sees it —
   // postMatchesQuery already treats a blank query as "matches everything,"
@@ -554,6 +560,22 @@ export default function MapPage() {
           </button>
         )}
       </div>
+
+      {/* A failed map-post fetch must not look like a genuine empty map —
+          the Leaflet map itself stays fully visible/interactive (zero
+          markers, same as while the first fetch is still in flight), with
+          this small non-blocking pill telling the user it failed and
+          offering a retry, rather than a full-screen error state. */}
+      {mapPostsError ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[999] flex justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-white/95 px-4 py-2 shadow-[0_4px_16px_rgba(50,40,30,0.18)] backdrop-blur">
+            <span className="text-xs font-semibold text-stone-600">Couldn&apos;t load map posts.</span>
+            <button type="button" onClick={retryMapPosts} className="text-xs font-bold text-kavanaka-aqua">
+              Try again
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {selectedPost ? <SelectedPostPreview post={selectedPost} cover={selectedCover} /> : null}
     </main>

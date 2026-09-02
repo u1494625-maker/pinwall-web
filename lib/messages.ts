@@ -106,6 +106,14 @@ export async function getOrCreateConversation(otherUserId: string): Promise<numb
 export async function getConversations(): Promise<Conversation[]> {
   if (!isSupabaseConfigured) return [];
 
+  // Independent of the RPC and profile lookup below — depends on neither's
+  // result — so it's started immediately rather than serialized behind them.
+  // getSystemMessageSummary() never rejects (it catches its own Supabase
+  // errors internally and resolves to undefined, same convention as every
+  // other read in this file), so leaving this promise unawaited on the
+  // early return below carries no unhandled-rejection risk.
+  const systemSummaryPromise = getSystemMessageSummary();
+
   const { data, error } = await supabase.rpc("get_conversations");
 
   if (error) {
@@ -131,7 +139,7 @@ export async function getConversations(): Promise<Conversation[]> {
     };
   });
 
-  const systemSummary = await getSystemMessageSummary();
+  const systemSummary = await systemSummaryPromise;
   if (systemSummary) {
     conversations.push({
       id: SYSTEM_CONVERSATION_ID,

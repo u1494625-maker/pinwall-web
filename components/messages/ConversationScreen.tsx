@@ -38,6 +38,10 @@ function BackButton({ onBack }: { onBack: () => void }) {
 export default function ConversationScreen({ conversationId }: ConversationScreenProps) {
   const router = useRouter();
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't reload the
+  // conversation or rebuild its realtime subscription — see both effects
+  // below that key on this instead of the raw `user` object.
+  const userId = user?.id ?? null;
 
   const [otherProfile, setOtherProfile] = useState<Profile | undefined>(undefined);
   const [headerLoading, setHeaderLoading] = useState(true);
@@ -58,8 +62,8 @@ export default function ConversationScreen({ conversationId }: ConversationScree
   const knownMessageIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
-    if (!user) return;
-    const myId = user.id;
+    if (!userId) return;
+    const myId = userId;
     let cancelled = false;
 
     async function load() {
@@ -108,7 +112,7 @@ export default function ConversationScreen({ conversationId }: ConversationScree
     return () => {
       cancelled = true;
     };
-  }, [user, conversationId]);
+  }, [userId, conversationId]);
 
   // Lets BottomNav's own global realtime handler know not to light the dot
   // for a message in exactly this conversation — it's already being shown
@@ -119,6 +123,10 @@ export default function ConversationScreen({ conversationId }: ConversationScree
   }, [conversationId]);
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[RT] ConversationScreen subscribe user=${userId} conversation=${conversationId}`);
+    }
+
     const unsubscribe = subscribeToConversationMessages(conversationId, (message) => {
       if (knownMessageIdsRef.current.has(message.id)) return;
       knownMessageIdsRef.current.add(message.id);
@@ -126,13 +134,18 @@ export default function ConversationScreen({ conversationId }: ConversationScree
       // A message arriving from the other participant while this exact
       // conversation is open is treated as read immediately — never left to
       // accumulate as unread just because it arrived after the initial load.
-      if (user && message.senderUserId !== user.id) {
+      if (userId && message.senderUserId !== userId) {
         markConversationRead(conversationId);
       }
     });
 
-    return unsubscribe;
-  }, [conversationId, user]);
+    return () => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[RT] ConversationScreen cleanup user=${userId} conversation=${conversationId}`);
+      }
+      unsubscribe();
+    };
+  }, [conversationId, userId]);
 
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ block: "end" });

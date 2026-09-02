@@ -101,6 +101,25 @@ function readHomeScrollY(tab: HomeTab): number {
 // instead of calling useLayoutEffect directly.
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
+/** Shown in place of a tab's feed when the underlying posts fetch failed —
+ *  never in place of a genuine (successfully-fetched) empty result. Reuses
+ *  the same dashed-card/pill-button style already used by this file's other
+ *  empty states. */
+function PostsLoadError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="mx-4 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
+      <h2 className="text-lg font-bold">Couldn&apos;t load posts.</h2>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 // Module-level, same reasoning as lib/posts.ts's cachedAllPosts: the
 // Following feed is fetched separately (it depends on the viewer's follow
 // list, not just post ids), so it needs its own instant-hydrate-then-
@@ -110,16 +129,23 @@ let cachedFollowingPosts: Post[] | null = null;
 export default function PinWallHome() {
   const selectedTab = useHomeTab();
   const { user, loading } = useAuth();
-  const { posts, loading: postsLoading } = useAllPostsState();
+  const { posts, loading: postsLoading, error: postsError, retry: retryPosts } = useAllPostsState();
   const savedViewport = useSavedMapViewport();
   // Explore only — Following/Nearby below deliberately keep using `posts`
-  // (unranked, chronological/bounds-filtered) unchanged.
+  // (unranked, chronological/bounds-filtered) unchanged. Feeding
+  // `postsLoading || postsError` (not just `postsLoading`) keeps
+  // useExploreFeed's own ranking effect blocked while the base fetch has
+  // failed — otherwise it would freeze a ranked generation from an empty
+  // `posts` array during the failure window, which wouldn't self-correct
+  // once retryPosts() succeeds (a frozen generation is never re-ranked
+  // except via an explicit refresh()). Nothing about useExploreFeed itself
+  // changes — only what this call passes as its loading input.
   const {
     posts: exploreFeedPosts,
     loading: exploreLoading,
     refreshing: exploreRefreshing,
     refresh: refreshExplore,
-  } = useExploreFeed(posts, postsLoading);
+  } = useExploreFeed(posts, postsLoading || postsError);
 
   // This IS the root of the Home tab's own navigation stack — mounting here
   // means the user has genuinely returned to Explore (as opposed to just
@@ -157,7 +183,16 @@ export default function PinWallHome() {
     let cancelled = false;
 
     async function loadFollowingPosts() {
-      const result = await getPostsByUserIds(followedUserIds);
+      // getPostsByUserIds now throws on a query error instead of swallowing
+      // it to [] internally (see lib/posts.ts) — this tab's own error/empty
+      // distinction is out of scope for this phase, so this preserves its
+      // exact prior behavior (treat a failed fetch the same as zero posts).
+      let result: Post[];
+      try {
+        result = await getPostsByUserIds(followedUserIds);
+      } catch {
+        result = [];
+      }
       cachedFollowingPosts = result;
       if (!cancelled) {
         setFollowingPosts(result);
@@ -229,6 +264,8 @@ export default function PinWallHome() {
         savedViewport?.bounds ? (
           postsLoading ? (
             <FeedSkeleton />
+          ) : postsError ? (
+            <PostsLoadError onRetry={retryPosts} />
           ) : mapsFeedPosts.length > 0 ? (
             <>
               <div className="flex items-center justify-end px-4 pb-1 pt-3">
@@ -261,6 +298,8 @@ export default function PinWallHome() {
             </Link>
           </div>
         )
+      ) : postsError ? (
+        <PostsLoadError onRetry={retryPosts} />
       ) : (
         <ExplorePullToRefresh onRefresh={refreshExplore} refreshing={exploreRefreshing}>
           {exploreLoading ? (

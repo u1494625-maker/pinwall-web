@@ -93,13 +93,14 @@ export async function unfollowUser(followerUserId: string, followingUserId: stri
  */
 function useUserPostIds(table: "post_saves" | "post_likes"): { ids: number[]; loading: boolean } {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this list.
+  const userId = user?.id ?? null;
   const [ids, setIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
-  const enabled = Boolean(user && isSupabaseConfigured);
+  const enabled = Boolean(userId && isSupabaseConfigured);
 
   useEffect(() => {
-    if (!enabled || !user) return;
-    const userId = user.id;
+    if (!enabled || !userId) return;
 
     let cancelled = false;
 
@@ -121,7 +122,7 @@ function useUserPostIds(table: "post_saves" | "post_likes"): { ids: number[]; lo
     return () => {
       cancelled = true;
     };
-  }, [enabled, user, table]);
+  }, [enabled, userId, table]);
 
   if (!enabled) {
     return { ids: [], loading: false };
@@ -143,13 +144,15 @@ export function useLikedPostIds(): { ids: number[]; loading: boolean } {
  *  real state). */
 export function useIsFollowing(targetUserId: string | undefined): { isFollowing: boolean; loading: boolean } {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this.
+  const userId = user?.id ?? null;
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const enabled = Boolean(user && targetUserId && user.id !== targetUserId && isSupabaseConfigured);
+  const enabled = Boolean(userId && targetUserId && userId !== targetUserId && isSupabaseConfigured);
 
   useEffect(() => {
-    if (!enabled || !user || !targetUserId) return;
-    const followerId = user.id;
+    if (!enabled || !userId || !targetUserId) return;
+    const followerId = userId;
 
     let cancelled = false;
 
@@ -174,7 +177,7 @@ export function useIsFollowing(targetUserId: string | undefined): { isFollowing:
     return () => {
       cancelled = true;
     };
-  }, [enabled, user, targetUserId]);
+  }, [enabled, userId, targetUserId]);
 
   if (!enabled) {
     return { isFollowing: false, loading: false };
@@ -188,13 +191,15 @@ export function useIsFollowing(targetUserId: string | undefined): { isFollowing:
  *  signed out or following nobody. */
 export function useFollowedUserIds(): { ids: string[]; loading: boolean } {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this list.
+  const userId = user?.id ?? null;
   const [ids, setIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const enabled = Boolean(user && isSupabaseConfigured);
+  const enabled = Boolean(userId && isSupabaseConfigured);
 
   useEffect(() => {
-    if (!enabled || !user) return;
-    const followerId = user.id;
+    if (!enabled || !userId) return;
+    const followerId = userId;
 
     let cancelled = false;
 
@@ -216,7 +221,7 @@ export function useFollowedUserIds(): { ids: string[]; loading: boolean } {
     return () => {
       cancelled = true;
     };
-  }, [enabled, user]);
+  }, [enabled, userId]);
 
   if (!enabled) {
     return { ids: [], loading: false };
@@ -230,13 +235,15 @@ export function useFollowedUserIds(): { ids: string[]; loading: boolean } {
  *  notification history). Empty (not an error) while signed out. */
 export function useFollowerUserIds(): { ids: string[]; loading: boolean } {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this list.
+  const userId = user?.id ?? null;
   const [ids, setIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const enabled = Boolean(user && isSupabaseConfigured);
+  const enabled = Boolean(userId && isSupabaseConfigured);
 
   useEffect(() => {
-    if (!enabled || !user) return;
-    const followingId = user.id;
+    if (!enabled || !userId) return;
+    const followingId = userId;
 
     let cancelled = false;
 
@@ -258,7 +265,7 @@ export function useFollowerUserIds(): { ids: string[]; loading: boolean } {
     return () => {
       cancelled = true;
     };
-  }, [enabled, user]);
+  }, [enabled, userId]);
 
   if (!enabled) {
     return { ids: [], loading: false };

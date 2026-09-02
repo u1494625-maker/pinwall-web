@@ -25,11 +25,13 @@ function CommentRowSkeleton() {
 
 export default function CommentsPage() {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this page.
+  const userId = user?.id ?? null;
   const [notifications, setNotifications] = useState<CommentNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     getCommentNotifications().then((result) => {
@@ -40,13 +42,13 @@ export default function CommentsPage() {
     });
 
     // Fire-and-forget: opening this page marks Comments (and only Comments) read.
-    markNotificationsRead(user.id, "comment");
+    markNotificationsRead(userId, "comment");
     setUnseenNotificationCategory("comment", false);
 
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   return (
     <NotificationsPageShell title="Comments">

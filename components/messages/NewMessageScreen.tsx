@@ -16,6 +16,8 @@ const SEARCH_DEBOUNCE_MS = 250;
 export default function NewMessageScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't re-run the search.
+  const userId = user?.id ?? null;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,7 +25,7 @@ export default function NewMessageScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     const trimmed = query.trim();
     let cancelled = false;
 
@@ -37,7 +39,7 @@ export default function NewMessageScreen() {
       }
 
       setLoading(true);
-      searchProfiles(trimmed, user.id).then((result) => {
+      searchProfiles(trimmed, userId).then((result) => {
         if (!cancelled) {
           setResults(result);
           setLoading(false);
@@ -49,7 +51,7 @@ export default function NewMessageScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, user]);
+  }, [query, userId]);
 
   async function handleSelect(otherUserId: string) {
     if (openingUserId) return;

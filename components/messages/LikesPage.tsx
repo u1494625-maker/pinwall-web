@@ -25,11 +25,13 @@ function LikeRowSkeleton() {
 
 export default function LikesPage() {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this page.
+  const userId = user?.id ?? null;
   const [notifications, setNotifications] = useState<LikeNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     getLikeNotifications().then((result) => {
@@ -40,13 +42,13 @@ export default function LikesPage() {
     });
 
     // Fire-and-forget: opening this page marks Likes (and only Likes) read.
-    markNotificationsRead(user.id, "like");
+    markNotificationsRead(userId, "like");
     setUnseenNotificationCategory("like", false);
 
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   return (
     <NotificationsPageShell title="Helpful">

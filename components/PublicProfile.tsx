@@ -66,12 +66,23 @@ export default function PublicProfile({ userId }: PublicProfileProps) {
         }
       });
 
-      getPostsByUserIds([userId]).then((result) => {
-        if (!cancelled) {
-          setPosts(result);
-          setPostsLoading(false);
-        }
-      });
+      // getPostsByUserIds now throws on a query error instead of swallowing
+      // it to [] internally (see lib/posts.ts) — this page's own error/empty
+      // distinction is out of scope for this phase, so this preserves its
+      // exact prior behavior (treat a failed fetch the same as zero posts).
+      getPostsByUserIds([userId])
+        .then((result) => {
+          if (!cancelled) {
+            setPosts(result);
+            setPostsLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPosts([]);
+            setPostsLoading(false);
+          }
+        });
 
       getProfileStats(userId).then((result) => {
         if (!cancelled) setStats(result);

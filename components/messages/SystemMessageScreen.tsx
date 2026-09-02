@@ -39,6 +39,9 @@ function BackButton({ onBack }: { onBack: () => void }) {
 export default function SystemMessageScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't reload the
+  // thread or rebuild its realtime subscription — see both effects below.
+  const userId = user?.id ?? null;
 
   const [messages, setMessages] = useState<SystemMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +53,7 @@ export default function SystemMessageScreen() {
   const knownMessageIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     // Entering this screen immediately marks the whole thread read — no
@@ -66,7 +69,7 @@ export default function SystemMessageScreen() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   // Lets BottomNav's system-message subscription know not to light the dot
   // while this thread is the one on screen — same sentinel/mechanism
@@ -77,16 +80,26 @@ export default function SystemMessageScreen() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
-    const unsubscribe = subscribeToSystemMessages(user.id, (message) => {
+    if (!userId) return;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[RT] SystemMessageScreen subscribe user=${userId}`);
+    }
+
+    const unsubscribe = subscribeToSystemMessages(userId, (message) => {
       if (knownMessageIdsRef.current.has(message.id)) return;
       knownMessageIdsRef.current.add(message.id);
       setMessages((prev) => [...prev, message]);
       markSystemMessagesRead();
     });
 
-    return unsubscribe;
-  }, [user]);
+    return () => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[RT] SystemMessageScreen cleanup user=${userId}`);
+      }
+      unsubscribe();
+    };
+  }, [userId]);
 
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ block: "end" });

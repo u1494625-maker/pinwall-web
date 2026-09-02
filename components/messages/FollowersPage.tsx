@@ -26,6 +26,8 @@ function FollowerRowSkeleton() {
 
 export default function FollowersPage() {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch this page.
+  const userId = user?.id ?? null;
   const [notifications, setNotifications] = useState<FollowNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const { ids: followedIds, loading: followedLoading } = useFollowedUserIds();
@@ -33,7 +35,7 @@ export default function FollowersPage() {
   const loading = notificationsLoading || followedLoading;
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     getFollowNotifications().then((result) => {
@@ -45,13 +47,13 @@ export default function FollowersPage() {
 
     // Fire-and-forget: opening this page marks New followers (and only
     // New followers) read.
-    markNotificationsRead(user.id, "follow");
+    markNotificationsRead(userId, "follow");
     setUnseenNotificationCategory("follow", false);
 
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   return (
     <NotificationsPageShell title="New followers">

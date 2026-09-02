@@ -8,14 +8,16 @@ import { getProfile, type Profile } from "@/lib/profiles";
 
 function EditProfileContent() {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch the profile.
+  const userId = user?.id ?? null;
   const [profile, setProfile] = useState<Profile | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
-    getProfile(user.id).then((result) => {
+    getProfile(userId).then((result) => {
       if (!cancelled) {
         setProfile(result);
         setLoading(false);
@@ -25,7 +27,7 @@ function EditProfileContent() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   if (loading || !user) {
     return <main className="min-h-screen bg-[#fbfaf7]" />;

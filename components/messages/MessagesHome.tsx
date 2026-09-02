@@ -48,10 +48,12 @@ const categories = [
 
 export default function MessagesHome() {
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch/re-run these.
+  const userId = user?.id ?? null;
   const [counts, setCounts] = useState<UnreadNotificationCounts>(EMPTY_COUNTS);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     getUnreadNotificationCounts().then((result) => {
@@ -61,17 +63,17 @@ export default function MessagesHome() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   // Entering /messages clears only the global dot signal — never marks any
   // individual conversation's messages as read. Updates the shared store
   // immediately (so BottomNav's dot disappears without waiting on a fresh
   // round trip) alongside the real server-side write.
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     markMessagesOpened();
     setHasUnseenMessages(false);
-  }, [user]);
+  }, [userId]);
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">

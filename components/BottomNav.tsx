@@ -55,6 +55,10 @@ export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED (which gives `user` a new
+  // object reference without changing who's signed in) doesn't retrigger the
+  // subscription effect below — see the effect's own comment.
+  const userId = user?.id ?? null;
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const isHydrated = useSyncExternalStore(subscribeNever, getIsHydrated, getIsHydratedServerSnapshot);
   const hasUnseenMessages = useHasUnseenMessages();
@@ -105,9 +109,12 @@ export default function BottomNav() {
   // lib/notifications.ts — a deliberately separate store, never merged into
   // hasUnseenMessages, so clearing one can never clobber the other).
   useEffect(() => {
-    if (!user) return;
-    const myId = user.id;
+    if (!userId) return;
     let cancelled = false;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[RT] BottomNav subscribe user=${userId}`);
+    }
 
     hasNewMessagesSinceLastOpen().then((result) => {
       if (!cancelled) setHasUnseenMessages(result);
@@ -118,7 +125,7 @@ export default function BottomNav() {
     });
 
     const unsubscribeMessages = subscribeToIncomingMessages((message) => {
-      if (message.senderUserId === myId) return;
+      if (message.senderUserId === userId) return;
       // The exact conversation currently on screen is already being shown
       // and marked read live by ConversationScreen — don't also light the
       // dot for it.
@@ -126,7 +133,7 @@ export default function BottomNav() {
       setHasUnseenMessages(true);
     });
 
-    const unsubscribeSystemMessages = subscribeToIncomingSystemMessages(myId, () => {
+    const unsubscribeSystemMessages = subscribeToIncomingSystemMessages(userId, () => {
       // Every event this subscription delivers is, by construction, a
       // message addressed to this user — no sender to exclude, unlike the
       // human-DM case above. Same suppression sentinel as ConversationScreen
@@ -138,17 +145,20 @@ export default function BottomNav() {
     // One subscription, not three — the single handler branches on the
     // inserted row's own type. No self-exclusion needed here: the database
     // never creates a notification where the actor is also the recipient.
-    const unsubscribeNotifications = subscribeToIncomingNotifications(myId, (notification) => {
+    const unsubscribeNotifications = subscribeToIncomingNotifications(userId, (notification) => {
       setUnseenNotificationCategory(notification.type, true);
     });
 
     return () => {
       cancelled = true;
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[RT] BottomNav cleanup user=${userId}`);
+      }
       unsubscribeMessages();
       unsubscribeSystemMessages();
       unsubscribeNotifications();
     };
-  }, [user]);
+  }, [userId]);
 
   if (
     pathname === "/search" ||

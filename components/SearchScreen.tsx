@@ -78,6 +78,8 @@ export default function SearchScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  // Stable primitive so a same-user TOKEN_REFRESHED doesn't re-run the user search.
+  const userId = user?.id ?? null;
 
   const q = searchParams.get("q") ?? "";
   const trimmedQuery = q.trim();
@@ -87,7 +89,7 @@ export default function SearchScreen() {
   // input instead of showing a blank box next to populated results.
   const [draft, setDraft] = useState(() => searchParams.get("q") ?? "");
 
-  const { posts, loading: postsLoading } = useAllPostsState();
+  const { posts, loading: postsLoading, error: postsError, retry: retryPosts } = useAllPostsState();
 
   const postResults = useMemo(
     () => (trimmedQuery ? searchPosts(posts, trimmedQuery) : []),
@@ -112,7 +114,7 @@ export default function SearchScreen() {
 
     async function load() {
       setUsersLoading(true);
-      const result = await searchProfiles(trimmedQuery, user?.id);
+      const result = await searchProfiles(trimmedQuery, userId ?? undefined);
       if (cancelled) return;
       setUserResults(result);
       setUsersLoading(false);
@@ -123,7 +125,7 @@ export default function SearchScreen() {
     return () => {
       cancelled = true;
     };
-  }, [mode, trimmedQuery, user]);
+  }, [mode, trimmedQuery, userId]);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -192,6 +194,17 @@ export default function SearchScreen() {
       {!trimmedQuery ? null : mode === "posts" ? (
         postsLoading ? (
           <FeedSkeleton />
+        ) : postsError ? (
+          <div className="mx-4 mt-6 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
+            <h2 className="text-lg font-bold">Couldn&apos;t load posts.</h2>
+            <button
+              type="button"
+              onClick={retryPosts}
+              className="mt-5 inline-flex rounded-full bg-stone-900 px-5 py-2.5 text-sm font-bold text-white"
+            >
+              Try again
+            </button>
+          </div>
         ) : postResults.length === 0 ? (
           <div className="mx-4 mt-6 rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center">
             <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-kavanaka-lime/15 text-2xl">⌕</div>
