@@ -29,6 +29,10 @@ export const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300MB
 export const POST_IMAGE_BUCKET = "post-image";
 /** Video files only — never covers, never photos. See supabase/post_video_bucket.sql. */
 export const POST_VIDEO_BUCKET = "post-video";
+/** Private message-image attachments only — see supabase/message_images.sql.
+ *  Unlike post-image/post-video, this bucket is not public; every read goes
+ *  through a signed URL, never getPublicUrl(). */
+export const MESSAGE_IMAGES_BUCKET = "message-images";
 export type StorageBucket = typeof POST_IMAGE_BUCKET | typeof POST_VIDEO_BUCKET;
 
 // A single-shot upload (a photo, or a video's cover image) should be quick —
@@ -305,4 +309,112 @@ export async function uploadProfileImage(file: Blob, userId: string, kind: "avat
   }
 
   return `${data.publicUrl}?v=${Date.now()}`;
+}
+
+/**
+ * Uploads one message image into the private message-images bucket, under
+ * `${senderUserId}/${conversationId}/...` — same path shape and same
+ * single-shot-with-timeout behavior as uploadPostMedia above, but into a
+ * private bucket, so this deliberately returns only the Storage PATH, never
+ * a public URL (getPublicUrl() would be meaningless here — see
+ * getMessageImageSignedUrl below for how a path becomes a renderable URL).
+ * The caller is responsible for passing an already-processed file (HEIC
+ * converted, prepareImageForUpload'd) — this function does no image
+ * processing of its own, matching uploadPostMedia's own division of labor.
+ */
+export async function uploadMessageImage(
+  file: File,
+  senderUserId: string,
+  conversationId: number,
+): Promise<{ path: string }> {
+  const path = `${senderUserId}/${conversationId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
+
+  const { error: uploadError } = await withTimeout(
+    supabase.storage.from(MESSAGE_IMAGES_BUCKET).upload(path, file, { contentType: file.type }),
+    SINGLE_SHOT_UPLOAD_TIMEOUT_MS,
+    `"${file.name}" couldn't be uploaded — the connection stalled. Check your connection and try again.`,
+  );
+
+  if (uploadError) {
+    const isNetworkFailure = uploadError.name === "StorageUnknownError";
+    const reason = isNetworkFailure
+      ? "the network connection was interrupted during upload. Check your connection and try again."
+      : `${uploadError.message}.`;
+    throw new Error(`Couldn't send that photo — ${reason}`);
+  }
+
+  return { path };
+}
+
+/**
+ * Best-effort cleanup for a message image already uploaded when the
+ * follow-up messages-row insert then fails — callers (ConversationScreen)
+ * should catch/swallow any error from this themselves, since the original
+ * insert failure is already the thing worth surfacing to the user; a
+ * leftover orphaned Storage object here is a much smaller problem than
+ * losing that original error to a secondary one.
+ */
+export async function deleteMessageImage(path: string): Promise<void> {
+  const { error } = await supabase.storage.from(MESSAGE_IMAGES_BUCKET).remove([path]);
+
+  if (error) {
+    throw new Error(`Failed to remove uploaded image: ${error.message}`);
+  }
+}
+
+/**
+ * Signed URL for one message image — never persisted; DirectMessage only
+ * ever stores the bare Storage path (see lib/messages.ts). RLS on
+ * storage.objects (supabase/message_images.sql) is the actual authority
+ * here: this only ever resolves for a genuine participant of the image's
+ * own conversation, exactly like any other read in this app. Returns
+ * undefined (never throws) on failure — callers render a graceful
+ * image-unavailable state instead of crashing the conversation.
+ */
+export async function getMessageImageSignedUrl(path: string, expiresInSeconds: number): Promise<string | undefined> {
+  const { data, error } = await supabase.storage.from(MESSAGE_IMAGES_BUCKET).createSignedUrl(path, expiresInSeconds);
+
+  if (error || !data?.signedUrl) {
+    console.error("Failed to sign message image URL:", error?.message);
+    return undefined;
+  }
+
+  return data.signedUrl;
+}
+
+/**
+ * Batched signed-URL creation for a whole conversation history's worth of
+ * image paths in one request — never one request per image. Each path's own
+ * success/failure is independent: a path that fails to sign is simply
+ * absent from the returned map, so one broken/inaccessible path can never
+ * prevent the rest from resolving. Falls back to positional correlation
+ * against the input array if a result entry's own `path` field is ever
+ * absent, since createSignedUrls is documented to return results in the
+ * same order as the input paths.
+ */
+export async function getMessageImageSignedUrls(
+  paths: string[],
+  expiresInSeconds: number,
+): Promise<Map<string, string>> {
+  const uniquePaths = Array.from(new Set(paths));
+  if (uniquePaths.length === 0) return new Map();
+
+  const { data, error } = await supabase.storage
+    .from(MESSAGE_IMAGES_BUCKET)
+    .createSignedUrls(uniquePaths, expiresInSeconds);
+
+  if (error) {
+    console.error("Failed to batch-sign message image URLs:", error.message);
+    return new Map();
+  }
+
+  const result = new Map<string, string>();
+  (data ?? []).forEach((entry, index) => {
+    const path = entry.path ?? uniquePaths[index];
+    if (entry.signedUrl && path) {
+      result.set(path, entry.signedUrl);
+    }
+  });
+
+  return result;
 }

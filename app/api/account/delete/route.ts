@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { POST_IMAGE_BUCKET, POST_VIDEO_BUCKET } from "@/lib/storage";
+import { MESSAGE_IMAGES_BUCKET, POST_IMAGE_BUCKET, POST_VIDEO_BUCKET } from "@/lib/storage";
 
 // Server-only — never NEXT_PUBLIC_, so Next.js never inlines this into the
 // client bundle. The URL/anon key are already public (used client-side
@@ -62,16 +62,59 @@ async function removeAllUnderPrefix(client: SupabaseClient, bucket: string, pref
 }
 
 /**
+ * Sweeps every message-image Storage object belonging to EITHER side of
+ * EVERY conversation `userId` was ever part of. Necessary because deleting a
+ * user cascades away both participants' `messages` rows for every shared
+ * conversation (on delete cascade on conversations.user_a_id/user_b_id, see
+ * supabase/messaging.sql) — so without this, the OTHER participant's images
+ * in that same conversation would be orphaned in Storage too, not just the
+ * deleted user's own. Scoped to exactly `${participantId}/${conversationId}/`
+ * per conversation being cascade-deleted — deliberately never a bare
+ * `${otherParticipantId}/` prefix, which would sweep that other user's
+ * images across every conversation they have, including ones with no
+ * relation to this deletion at all.
+ *
+ * "Best-effort" in the sense that a conversation with nothing to remove
+ * under a given prefix is simply a no-op (same as removeAllUnderPrefix's own
+ * behavior on an empty listing elsewhere in this file) — not in the sense of
+ * swallowing a real Storage error. A genuine failure here propagates and is
+ * handled exactly like the existing post-image/post-video cleanup below:
+ * the whole account-deletion attempt aborts before the auth user is ever
+ * touched, and is safe to retry from scratch.
+ */
+async function removeMessageImagesForUser(client: SupabaseClient, userId: string): Promise<void> {
+  const { data, error } = await client
+    .from("conversations")
+    .select("id, user_a_id, user_b_id")
+    .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`);
+
+  if (error) {
+    throw new Error(`Failed to list conversations: ${error.message}`);
+  }
+
+  const conversations = (data ?? []) as { id: number; user_a_id: string; user_b_id: string }[];
+
+  for (const conversation of conversations) {
+    await removeAllUnderPrefix(client, MESSAGE_IMAGES_BUCKET, `${conversation.user_a_id}/${conversation.id}/`);
+    await removeAllUnderPrefix(client, MESSAGE_IMAGES_BUCKET, `${conversation.user_b_id}/${conversation.id}/`);
+  }
+}
+
+/**
  * Permanently deletes the caller's own Kavanaka account: every Storage
  * object under their own `${userId}/` prefix in both post-image and
  * post-video (covers post photos, videos, video thumbnails, avatar, and
  * background — all of them live under this same prefix convention, see
  * lib/storage.ts — including any orphaned upload with no surviving
  * post_media row, since this lists real Storage objects directly rather
- * than reconstructing paths from database rows), then the auth.users row
- * itself via the Admin API, which cascades away every dependent Postgres
- * row for free (see the on delete cascade already present on every
- * user-owned table).
+ * than reconstructing paths from database rows), plus every message-image
+ * this user's conversations reference on EITHER side (see
+ * removeMessageImagesForUser above — a conversation's images belong to
+ * BOTH participants' prefixes, and the whole conversation is about to be
+ * cascade-deleted regardless of which side initiated this deletion), then
+ * the auth.users row itself via the Admin API, which cascades away every
+ * dependent Postgres row for free (see the on delete cascade already
+ * present on every user-owned table).
  *
  * The user being deleted is derived exclusively from the bearer token this
  * request carries, verified server-side against Supabase's own auth
@@ -113,6 +156,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   });
 
   try {
+    await removeMessageImagesForUser(adminClient, userId);
     await removeAllUnderPrefix(adminClient, POST_IMAGE_BUCKET, `${userId}/`);
     await removeAllUnderPrefix(adminClient, POST_VIDEO_BUCKET, `${userId}/`);
   } catch {

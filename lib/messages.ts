@@ -8,6 +8,12 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 /** Mirrors the check constraint in supabase/messaging.sql. */
 export const MAX_MESSAGE_LENGTH = 2000;
 
+/** Practical expiry for a message-image signed URL — see
+ *  getMessageImageSignedUrl(s) in lib/storage.ts. Not an elaborate refresh
+ *  scheduler for v1: a conversation reopened after this window simply
+ *  re-signs on load, same as any other fresh page view. */
+export const SIGNED_URL_EXPIRES_IN_SECONDS = 24 * 60 * 60;
+
 export type Conversation = {
   id: number;
   /** Absent only for the synthetic System Message row (id ===
@@ -27,11 +33,19 @@ export type Conversation = {
   unreadCount: number;
 };
 
+/** A message is exactly one of TEXT (body set, imagePath null) or IMAGE
+ *  (imagePath set, body null) — enforced at the DB level by
+ *  messages_body_or_image_check (supabase/message_images.sql), never both,
+ *  never neither. */
 export type DirectMessage = {
   id: number;
   conversationId: number;
   senderUserId: string;
-  body: string;
+  body: string | null;
+  /** Storage path in the private message-images bucket, not a URL — see
+   *  getMessageImageSignedUrl(s) in lib/storage.ts for turning this into
+   *  something renderable. */
+  imagePath: string | null;
   createdAt: string;
 };
 
@@ -50,11 +64,12 @@ type MessageRow = {
   id: number;
   conversation_id: number;
   sender_user_id: string;
-  body: string;
+  body: string | null;
+  image_path: string | null;
   created_at: string;
 };
 
-const MESSAGE_COLUMNS = "id, conversation_id, sender_user_id, body, created_at";
+const MESSAGE_COLUMNS = "id, conversation_id, sender_user_id, body, image_path, created_at";
 
 function rowToMessage(row: MessageRow): DirectMessage {
   return {
@@ -62,6 +77,7 @@ function rowToMessage(row: MessageRow): DirectMessage {
     conversationId: row.conversation_id,
     senderUserId: row.sender_user_id,
     body: row.body,
+    imagePath: row.image_path,
     createdAt: row.created_at,
   };
 }
@@ -209,11 +225,11 @@ export async function getMessages(conversationId: number): Promise<DirectMessage
   return (data ?? []).map(rowToMessage);
 }
 
-/** Inserts a message as `senderUserId` — RLS independently verifies this
- *  against auth.uid() and conversation participancy, so this can never send
- *  as someone else or into a conversation the caller isn't part of, no
+/** Inserts a text message as `senderUserId` — RLS independently verifies
+ *  this against auth.uid() and conversation participancy, so this can never
+ *  send as someone else or into a conversation the caller isn't part of, no
  *  matter what's passed here. Throws a plain message on failure. */
-export async function sendMessage(conversationId: number, senderUserId: string, body: string): Promise<DirectMessage> {
+export async function sendTextMessage(conversationId: number, senderUserId: string, body: string): Promise<DirectMessage> {
   if (!isSupabaseConfigured) {
     throw new Error("Messaging isn't available right now.");
   }
@@ -226,6 +242,35 @@ export async function sendMessage(conversationId: number, senderUserId: string, 
 
   if (error || !data) {
     throw new Error("Couldn't send that message. Try again.");
+  }
+
+  return rowToMessage(data);
+}
+
+/** Inserts an image message as `senderUserId` — `imagePath` must already
+ *  point at a real object the caller just uploaded (see uploadMessageImage
+ *  in lib/storage.ts); this only ever records the reference. Same RLS
+ *  guarantees as sendTextMessage above (sender identity + participancy +
+ *  not-blocked, all independently re-verified server-side). Throws a plain
+ *  message on failure — callers are responsible for best-effort deleting the
+ *  now-orphaned uploaded object when this throws (see ConversationScreen). */
+export async function sendImageMessage(
+  conversationId: number,
+  senderUserId: string,
+  imagePath: string,
+): Promise<DirectMessage> {
+  if (!isSupabaseConfigured) {
+    throw new Error("Messaging isn't available right now.");
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({ conversation_id: conversationId, sender_user_id: senderUserId, image_path: imagePath })
+    .select(MESSAGE_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    throw new Error("Couldn't send that photo. Try again.");
   }
 
   return rowToMessage(data);
