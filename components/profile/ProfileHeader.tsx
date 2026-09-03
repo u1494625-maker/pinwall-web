@@ -87,6 +87,13 @@ export default function ProfileHeader({ profile, onBack, headerActions }: Profil
           >
             {displayName}
           </h1>
+          <p
+            className={`truncate text-[11px] font-semibold ${
+              hasPhoto ? "text-white/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" : "text-stone-500"
+            }`}
+          >
+            @{profile.username}
+          </p>
           {profile.bio ? (
             <p
               className={`mt-0.5 line-clamp-2 max-w-[16rem] text-[11px] font-medium leading-snug ${

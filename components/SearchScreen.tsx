@@ -50,12 +50,12 @@ function SearchModeTabs({ mode, onSelect }: { mode: SearchMode; onSelect: (mode:
 
 /** Compact profile row — same shape as NewMessageScreen's own result rows
  *  (avatar with initial-letter fallback, display name), but a plain Link to
- *  the profile rather than an async "open a conversation" action. Shows a
- *  truncated bio as a secondary line when the profile has one; there is no
- *  other appropriate secondary identity field on profiles today (no
- *  username, no location). Deliberately carries no Follow/Message/Block
- *  affordance of its own — PublicProfile already owns all of that,
- *  including the correct blocked-state handling. */
+ *  the profile rather than an async "open a conversation" action. Shows
+ *  @username right under the name (the real disambiguator between two
+ *  same-named users — see searchProfiles in lib/profiles.ts) and, if the
+ *  profile has one, a truncated bio below that. Deliberately carries no
+ *  Follow/Message/Block affordance of its own — PublicProfile already owns
+ *  all of that, including the correct blocked-state handling. */
 function UserResultRow({ profile }: { profile: Profile }) {
   return (
     <Link href={`/profile/${profile.id}`} className="flex w-full items-center gap-3 px-4 py-3 text-left">
@@ -68,7 +68,8 @@ function UserResultRow({ profile }: { profile: Profile }) {
       )}
       <span className="min-w-0">
         <span className="block truncate text-sm font-bold text-stone-900">{profile.displayName}</span>
-        {profile.bio ? <span className="block truncate text-xs text-stone-500">{profile.bio}</span> : null}
+        <span className="block truncate text-xs text-stone-500">@{profile.username}</span>
+        {profile.bio ? <span className="block truncate text-xs text-stone-400">{profile.bio}</span> : null}
       </span>
     </Link>
   );

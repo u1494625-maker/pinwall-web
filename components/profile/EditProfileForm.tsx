@@ -1,13 +1,22 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import DemoPhoto from "@/components/DemoPhoto";
 import DeleteAccountSheet from "@/components/profile/DeleteAccountSheet";
 import ImageCropModal from "@/components/profile/ImageCropModal";
 import { PROFILE_HEADER_ASPECT } from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { MAX_BIO_LENGTH, MAX_DISPLAY_NAME_LENGTH, updateProfile, type Profile } from "@/lib/profiles";
+import {
+  isUsernameAvailable,
+  MAX_BIO_LENGTH,
+  MAX_DISPLAY_NAME_LENGTH,
+  MAX_USERNAME_LENGTH,
+  normalizeUsername,
+  updateProfile,
+  validateUsername,
+  type Profile,
+} from "@/lib/profiles";
 import { uploadProfileImage } from "@/lib/storage";
 
 type EditProfileFormProps = {
@@ -24,6 +33,13 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
   const backgroundInputRef = useRef<HTMLInputElement>(null);
 
   const [displayName, setDisplayName] = useState(profile.displayName ?? "");
+  const [username, setUsername] = useState(profile.username);
+  // Result of the last completed availability check, tagged with which
+  // username it was for — so a stale result never gets attributed to
+  // whatever's currently typed. Only ever set from inside the debounced
+  // async check below, never synchronously in the effect body.
+  const [availabilityCheck, setAvailabilityCheck] = useState<{ username: string; available: boolean } | null>(null);
+  const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
   const [bio, setBio] = useState(profile.bio ?? "");
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState(profile.avatarUrl);
   const [backgroundPreviewUrl, setBackgroundPreviewUrl] = useState(profile.backgroundUrl);
@@ -68,6 +84,46 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
 
   const trimmedName = displayName.trim();
   const trimmedBio = bio.trim();
+  const normalizedUsername = normalizeUsername(username);
+
+  // Lightweight UX-only feedback while typing — updateProfile()'s own
+  // unique-violation handling (see lib/profiles.ts) is what actually
+  // prevents a collision at save time; this never blocks Save on its own.
+  // Every setState call here happens inside the timeout/promise callback,
+  // never synchronously in the effect body itself — usernameFeedback below
+  // derives the idle/checking/available/taken display purely from state at
+  // render time instead.
+  useEffect(() => {
+    if (normalizedUsername === profile.username || validateUsername(normalizedUsername)) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setIsCheckingAvailability(true);
+      isUsernameAvailable(normalizedUsername, userId).then((available) => {
+        if (cancelled) return;
+        setAvailabilityCheck({ username: normalizedUsername, available });
+        setIsCheckingAvailability(false);
+      });
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [normalizedUsername, profile.username, userId]);
+
+  const usernameFeedback: "checking" | "available" | "taken" | null =
+    normalizedUsername === profile.username || validateUsername(normalizedUsername)
+      ? null
+      : isCheckingAvailability
+        ? "checking"
+        : availabilityCheck?.username === normalizedUsername
+          ? availabilityCheck.available
+            ? "available"
+            : "taken"
+          : null;
 
   async function handleSave() {
     setError(null);
@@ -78,6 +134,11 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
     }
     if (trimmedName.length > MAX_DISPLAY_NAME_LENGTH) {
       setError(`Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or fewer.`);
+      return;
+    }
+    const usernameError = validateUsername(normalizedUsername);
+    if (usernameError) {
+      setError(usernameError);
       return;
     }
     if (trimmedBio.length > MAX_BIO_LENGTH) {
@@ -94,8 +155,14 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
           : Promise.resolve(profile.backgroundUrl),
       ]);
 
+      // The database's unique index on lower(username) is the real
+      // authority — this throws a specific "already taken" message (caught
+      // below, same as any other save error) if another user took this
+      // exact username in the gap between the availability check above and
+      // this save.
       await updateProfile(userId, {
         displayName: trimmedName,
+        username: normalizedUsername,
         bio: trimmedBio.length > 0 ? trimmedBio : null,
         avatarUrl,
         backgroundUrl,
@@ -208,6 +275,33 @@ export default function EditProfileForm({ userId, profile }: EditProfileFormProp
             <p className="mt-1 text-right text-[11px] font-medium tabular-nums text-stone-400">
               {MAX_DISPLAY_NAME_LENGTH - displayName.length}
             </p>
+          </div>
+
+          <div className="border-t border-stone-100 pt-4">
+            <label htmlFor="username" className="text-xs font-bold text-stone-500">
+              Username
+            </label>
+            <div className="mt-1.5 flex items-center gap-0.5">
+              <span className="text-base font-bold text-stone-400">@</span>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                maxLength={MAX_USERNAME_LENGTH}
+                placeholder="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                className="w-full border-none bg-transparent text-base font-bold text-stone-900 outline-none placeholder:font-normal placeholder:text-stone-400"
+              />
+            </div>
+            {usernameFeedback === "checking" ? (
+              <p className="mt-1 text-[11px] font-medium text-stone-400">Checking…</p>
+            ) : usernameFeedback === "taken" ? (
+              <p className="mt-1 text-[11px] font-medium text-red-600">Already taken</p>
+            ) : usernameFeedback === "available" ? (
+              <p className="mt-1 text-[11px] font-medium text-kavanaka-green">Available</p>
+            ) : null}
           </div>
 
           <div className="border-t border-stone-100 pt-4">

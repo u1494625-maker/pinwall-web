@@ -118,8 +118,11 @@ export default function NewMessageScreen() {
                   {(profile.displayName ?? "?").charAt(0).toUpperCase()}
                 </span>
               )}
-              <span className="text-sm font-bold text-stone-900">{profile.displayName}</span>
-              {openingUserId === profile.id ? <span className="ml-auto text-xs text-stone-400">Opening…</span> : null}
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold text-stone-900">{profile.displayName}</span>
+                <span className="block truncate text-xs text-stone-500">@{profile.username}</span>
+              </span>
+              {openingUserId === profile.id ? <span className="ml-auto shrink-0 text-xs text-stone-400">Opening…</span> : null}
             </button>
           ))
         )}
