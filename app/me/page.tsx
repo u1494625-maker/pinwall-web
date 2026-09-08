@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import RequireAuth from "@/components/auth/RequireAuth";
+import GuestAuthState from "@/components/GuestAuthState";
 import PostCard from "@/components/PostCard";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -54,7 +54,7 @@ function SavedOrHelpfulTab({ postIds, emptyCopy }: { postIds: number[]; emptyCop
 }
 
 function MeContent() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch stats/profile.
   const userId = user?.id ?? null;
   const { ids: savedPostIds } = useSavedPostIds();
@@ -118,6 +118,26 @@ function MeContent() {
     setOwnPostsLoading(true);
     setOwnPostsError(false);
     setOwnPostsRetryToken((token) => token + 1);
+  }
+
+  // Same auth-loading treatment as RequireAuth uses elsewhere — a brief
+  // neutral shell while the session resolves, never a flash of the guest
+  // state for someone who turns out to be signed in.
+  if (authLoading) {
+    return <ProfileHeaderSkeleton />;
+  }
+
+  // Signed out: the profile-fetch effects above never run for a null userId
+  // (profileLoading would otherwise stay stuck true forever) — this page's
+  // own shell stays visible and BottomNav stays interactive, with only the
+  // protected profile content replaced by an inline GuestAuthState, rather
+  // than swapping the whole page for a full-page LoginScreen.
+  if (!user) {
+    return (
+      <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7]">
+        <GuestAuthState message="Log in to view your profile." />
+      </main>
+    );
   }
 
   if (profileLoading || !profile) {
@@ -235,10 +255,10 @@ function MeContent() {
   );
 }
 
+// MeContent handles its own auth states inline (loading / signed-out /
+// signed-in) instead of being wrapped in RequireAuth — a signed-out visitor
+// still sees this page's own shell and BottomNav, with only the protected
+// profile content replaced by GuestAuthState. See MeContent above.
 export default function MePage() {
-  return (
-    <RequireAuth>
-      <MeContent />
-    </RequireAuth>
-  );
+  return <MeContent />;
 }

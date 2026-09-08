@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import ConversationList from "@/components/messages/ConversationList";
+import GuestAuthState from "@/components/GuestAuthState";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { markMessagesOpened, setHasUnseenMessages } from "@/lib/messages";
 import { getUnreadNotificationCounts, type UnreadNotificationCounts } from "@/lib/notifications";
@@ -47,7 +48,7 @@ const categories = [
 ] as const;
 
 export default function MessagesHome() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   // Stable primitive so a same-user TOKEN_REFRESHED doesn't refetch/re-run these.
   const userId = user?.id ?? null;
   const [counts, setCounts] = useState<UnreadNotificationCounts>(EMPTY_COUNTS);
@@ -75,31 +76,44 @@ export default function MessagesHome() {
     setHasUnseenMessages(false);
   }, [userId]);
 
+  // Same auth-loading treatment as RequireAuth uses elsewhere — a brief
+  // neutral shell while the session resolves, never a flash of the guest
+  // state for someone who turns out to be signed in.
+  if (loading) {
+    return <main className="min-h-screen bg-[#fbfaf7]" />;
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-[#fbfaf7] pb-28 shadow-[0_0_50px_rgba(50,40,30,0.08)]">
-      <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
-        {categories.map(({ countKey, label, href, accent, Icon }) => {
-          const count = counts[countKey];
-          return (
-            <Link key={countKey} href={href} className="flex flex-col items-center gap-2 text-center">
-              <span className={`relative grid size-16 place-items-center rounded-2xl ${accent}`}>
-                <Icon />
-                {count > 0 ? (
-                  <span className="absolute -right-1 -top-1 grid min-w-[18px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                    {count}
+      {!user ? (
+        <GuestAuthState message="Log in to view your messages." />
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3 px-5 pb-6 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
+            {categories.map(({ countKey, label, href, accent, Icon }) => {
+              const count = counts[countKey];
+              return (
+                <Link key={countKey} href={href} className="flex flex-col items-center gap-2 text-center">
+                  <span className={`relative grid size-16 place-items-center rounded-2xl ${accent}`}>
+                    <Icon />
+                    {count > 0 ? (
+                      <span className="absolute -right-1 -top-1 grid min-w-[18px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                        {count}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-              </span>
-              <span className="text-sm font-bold leading-tight text-stone-600">{label}</span>
-            </Link>
-          );
-        })}
-      </div>
+                  <span className="text-sm font-bold leading-tight text-stone-600">{label}</span>
+                </Link>
+              );
+            })}
+          </div>
 
-      <div className="border-t border-stone-100">
-        <h2 className="px-5 pb-2 pt-5 text-sm font-black text-stone-900">Messages</h2>
-        <ConversationList />
-      </div>
+          <div className="border-t border-stone-100">
+            <h2 className="px-5 pb-2 pt-5 text-sm font-black text-stone-900">Messages</h2>
+            <ConversationList />
+          </div>
+        </>
+      )}
     </main>
   );
 }

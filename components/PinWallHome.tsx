@@ -2,10 +2,10 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import LoginScreen from "./auth/LoginScreen";
 import CategoryChips from "./CategoryChips";
 import ExplorePullToRefresh from "./ExplorePullToRefresh";
 import ExploreRefreshButton from "./ExploreRefreshButton";
+import GuestAuthState from "./GuestAuthState";
 import MasonryFeed, { FeedSkeleton } from "./MasonryFeed";
 import TopBar from "./TopBar";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -230,14 +230,16 @@ export default function PinWallHome() {
   }, [selectedTab]);
 
   // Following requires a signed-in user. Reuse the same auth state/loading
-  // shape RequireAuth uses elsewhere, so this behaves consistently — no
-  // redirect, no flash of the wrong content while the session is resolving.
+  // shape RequireAuth uses elsewhere while the session is still resolving —
+  // no redirect, no flash of the wrong content. Once resolved, a signed-out
+  // viewer stays on this same page shell (header, tabs, BottomNav all still
+  // here and interactive) — only the Following feed's own content area
+  // below swaps to an inline GuestAuthState, so tapping back to Explore
+  // never requires signing in first (see the isFollowingTab branch further
+  // down; this deliberately does NOT early-return a full-page LoginScreen
+  // the way RequireAuth does for other routes).
   if (isFollowingTab && loading) {
     return <main className="min-h-screen bg-[#fbfaf7]" />;
-  }
-
-  if (isFollowingTab && !user) {
-    return <LoginScreen />;
   }
 
   return (
@@ -251,7 +253,9 @@ export default function PinWallHome() {
       ) : null}
 
       {isFollowingTab ? (
-        followedLoading || followingPostsLoading ? (
+        !user ? (
+          <GuestAuthState message="Log in to see posts from people you follow." />
+        ) : followedLoading || followingPostsLoading ? (
           <FeedSkeleton />
         ) : followingPosts.length > 0 ? (
           <MasonryFeed posts={followingPosts} homeOriginated />
