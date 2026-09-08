@@ -244,22 +244,20 @@ export async function getAllPosts(): Promise<Post[]> {
 }
 
 /**
- * Posts eligible to appear on the Map, newest first — scoped to
- * show_on_map = true at the database level instead of fetching every post
- * in the app and filtering client-side. This is the same coarse gate
- * hasValidMapLocation (lib/map/viewport.ts) already applies for the
- * post-level-location case; buildMapItems (lib/map/clustering.ts) is left
- * completely unchanged and still performs the final, precise eligibility
- * check (a specific per-photo location, or a valid post-level location) —
- * this query only needs to avoid fetching posts that can never be map items
- * at all. Per-photo-located media (see MediaPostEditor's
- * handleToggleShowOnMap/handleTogglePerPhotoLocationMode in
- * lib/mediaComposer.ts) can only ever exist on a post with
- * show_on_map = true — turning "Show on map" off actively clears per-photo
- * location data, and per-photo mode is only reachable while it's already on
- * — so this one column is a safe, exact gate for both the legacy
- * post-level-location path and the per-photo path. Throws on a Supabase
- * query error (rather than swallowing it to []) so callers — see
+ * Posts eligible to appear on the Map, newest first. Does NOT filter by
+ * show_on_map at the database level — that column only means "this post has
+ * a valid POST-LEVEL pin." publish_post_draft (see
+ * supabase/post_draft_publish_idempotency.sql) deliberately stores
+ * show_on_map = false for a post published in per-photo location mode (so
+ * it never also gets a duplicate post-level pin), even though such a post
+ * can have several valid per-photo locations in post_media and absolutely
+ * belongs on the Map. A `.eq("show_on_map", true)` filter here previously
+ * excluded every one of those posts entirely, before buildMapItems ever got
+ * a chance to see them — a real P0 regression, fixed by removing the filter
+ * and going back to letting buildMapItems (lib/map/clustering.ts) alone
+ * decide eligibility (a specific per-photo location, or a valid post-level
+ * location) from the full post list, exactly as it already does. Throws on
+ * a Supabase query error (rather than swallowing it to []) so callers — see
  * useMapPostsState below — can distinguish a genuine empty result from a
  * failed fetch.
  */
@@ -272,7 +270,6 @@ export async function getMapPosts(): Promise<Post[]> {
   const { data, error } = await supabase
     .from("posts")
     .select(POST_COLUMNS)
-    .eq("show_on_map", true)
     .order("created_at", { ascending: false });
 
   if (error) {
