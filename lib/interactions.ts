@@ -186,6 +186,22 @@ export function useIsFollowing(targetUserId: string | undefined): { isFollowing:
   return { isFollowing, loading };
 }
 
+/**
+ * Shared, referentially-stable "disabled" return value for
+ * useFollowedUserIds/useFollowerUserIds below — returning a fresh
+ * `{ ids: [], loading: false }` object (and, crucially, a fresh `[]`) on
+ * every render broke effects downstream that depend on the returned `ids`
+ * array: React's dependency-array comparison treats a new-but-equal-looking
+ * array reference as "changed" on every single render, which drove
+ * PinWallHome's Following-posts effect into an infinite async render loop
+ * for a signed-out viewer (confirmed live — pinned the render thread at
+ * ~100% CPU). One shared constant, reused as-is (never spread/cloned) by
+ * both hooks, is enough to fix it: `Object.is` sees the exact same
+ * reference every render, so a dependency array holding this `ids` array
+ * never appears "changed" just because the component re-rendered.
+ */
+const EMPTY_USER_IDS_STATE: { ids: string[]; loading: boolean } = { ids: [], loading: false };
+
 /** The user IDs the signed-in viewer follows — used to build the Home
  *  "Following" feed (posts by these users). Empty (not an error) while
  *  signed out or following nobody. */
@@ -224,7 +240,7 @@ export function useFollowedUserIds(): { ids: string[]; loading: boolean } {
   }, [enabled, userId]);
 
   if (!enabled) {
-    return { ids: [], loading: false };
+    return EMPTY_USER_IDS_STATE;
   }
 
   return { ids, loading };
@@ -268,7 +284,7 @@ export function useFollowerUserIds(): { ids: string[]; loading: boolean } {
   }, [enabled, userId]);
 
   if (!enabled) {
-    return { ids: [], loading: false };
+    return EMPTY_USER_IDS_STATE;
   }
 
   return { ids, loading };
